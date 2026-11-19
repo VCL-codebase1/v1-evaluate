@@ -185,6 +185,7 @@ export function saveSheet(id: string, lines: Partial<SheetLine>[], version = "v1
   const nextLines = lines
     .map((line, index) => cleanLine(line, index))
     .filter((line): line is SheetLine => Boolean(line));
+  const previousIds = new Set(current.lines.map((line) => line.id));
   const sheet: SheetRecord = {
     ...current,
     estimateId: id,
@@ -195,12 +196,24 @@ export function saveSheet(id: string, lines: Partial<SheetLine>[], version = "v1
   store.sheets[id] = sheet;
   const summary = summarizeSheet(nextLines, store.rates);
   syncEstimate(id, summary.grandTotalNgn, sheet.reviewStage);
-  recordAudit({
-    actor,
-    action: "sheet.saved",
-    estimateId: id,
-    detail: `${summary.itemCount} item${summary.itemCount === 1 ? "" : "s"}`,
-  });
+  const added = nextLines.filter((line) => line.item.trim() && !previousIds.has(line.id));
+  if (added.length === 0) {
+    recordAudit({
+      actor,
+      action: "sheet.saved",
+      estimateId: id,
+      detail: `${summary.itemCount} item${summary.itemCount === 1 ? "" : "s"}`,
+    });
+  } else {
+    added.forEach(() => {
+      recordAudit({
+        actor,
+        action: "item.added",
+        estimateId: id,
+        detail: "Item added",
+      });
+    });
+  }
   return { sheet: sheetResponse(id, version) };
 }
 

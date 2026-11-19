@@ -166,7 +166,7 @@ export function EstimationSheet({
       setMessage(payload.error ?? "Unable to submit this estimate.");
       return;
     }
-    router.push("/approval");
+    router.push(`/approval?estimate=${estimateIdRef.current}`);
     router.refresh();
   }
 

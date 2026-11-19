@@ -1,30 +1,94 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { ButtonLink } from "@/components/ui/button";
-import { formatGrandTotal, formatSoncap, summarizeSheet } from "@/lib/estimation";
-import type { ExchangeRateTable, SheetRecord } from "@/lib/types";
+import { formatAmount, formatGrandTotal } from "@/lib/estimation";
+import type { AuditEvent, EstimateRecord, ReviewStage, SheetLine } from "@/lib/types";
 
-function versionLabel(version: string) {
-  return `Version ${version.replace(/^v/i, "")}`;
+const STEPS = [
+  "Estimate Created",
+  "Approved by Line Manager",
+  "Approved by Sales Director",
+  "Finally Approved",
+] as const;
+
+type ComputedLine = SheetLine & {
+  bank: number;
+  duties: number | null;
+  agency: number | null;
+  totalNgn: number;
+};
+
+type SheetPayload = {
+  estimateId: string;
+  reviewStage: ReviewStage;
+  lines: ComputedLine[];
+  summary: { grandTotalNgn: number; lines: ComputedLine[] };
+};
+
+function stageIndex(stage: ReviewStage | null) {
+  if (stage === "approved") return 3;
+  if (stage === "in_review" || stage === "draft" || stage === "returned") return 0;
+  return -1;
 }
 
-type ApprovalPayload = SheetRecord & { rates: ExchangeRateTable };
+function statusLabel(stage: ReviewStage) {
+  if (stage === "approved") return "Finally Approved";
+  if (stage === "returned") return "Returned";
+  if (stage === "in_review") return "Under Line Manager Review";
+  return "Estimate Created";
+}
+
+function actorLabel(actor: string) {
+  if (actor.includes("(")) return actor;
+  if (actor === "Representative") return "Rep 1 (Representative)";
+  return `${actor} (Representative)`;
+}
+
+function historyAction(event: AuditEvent) {
+  if (event.action === "estimate.created") return "created";
+  if (event.action === "item.added") return "Item added";
+  if (event.action === "sheet.saved") return "Sheet updated";
+  if (event.action === "sheet.submitted") return "Submitted for Line Manager review";
+  if (event.action === "sheet.approved") return "Finally Approved";
+  if (event.action === "sheet.returned") return "Returned";
+  return event.detail || "Updated";
+}
+
+function historyStamp(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const day = new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).format(date);
+  return day.replace(",", ",");
+}
 
 export function ApprovalPanel() {
-  const [payload, setPayload] = useState<ApprovalPayload | null>(null);
+  const router = useRouter();
+  const params = useSearchParams();
+  const selectedId = params.get("estimate");
+  const [estimates, setEstimates] = useState<EstimateRecord[] | null>(null);
+  const [sheet, setSheet] = useState<SheetPayload | null>(null);
+  const [events, setEvents] = useState<AuditEvent[]>([]);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     let active = true;
-    fetch("/api/approval")
+    fetch("/api/estimates")
       .then((response) => {
         if (!response.ok) throw new Error("unavailable");
         return response.json();
       })
-      .then((data: ApprovalPayload) => {
-        if (active) setPayload(data);
+      .then((data: { estimates: EstimateRecord[] }) => {
+        if (active) setEstimates(data.estimates);
       })
       .catch(() => {
         if (active) setFailed(true);
@@ -34,177 +98,249 @@ export function ApprovalPanel() {
     };
   }, []);
 
-  if (!payload) {
-    return (
-      <div className="page-stack">
-        <div className="approval-heading">
-          <h1 className="text-page-title">Approval</h1>
-          <p className="approval-kicker">
-            {failed ? "The review could not be loaded." : "Loading the review…"}
-          </p>
+  useEffect(() => {
+    if (!selectedId) {
+      setSheet(null);
+      return;
+    }
+    let active = true;
+    fetch(`/api/estimates/${selectedId}/sheet`)
+      .then((response) => {
+        if (!response.ok) throw new Error("unavailable");
+        return response.json();
+      })
+      .then((data: SheetPayload) => {
+        if (active) setSheet(data);
+      })
+      .catch(() => {
+        if (active) setSheet(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [selectedId]);
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/audit")
+      .then((response) => (response.ok ? response.json() : { events: [] }))
+      .then((data: { events: AuditEvent[] }) => {
+        if (active) setEvents(data.events ?? []);
+      })
+      .catch(() => {
+        if (active) setEvents([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [selectedId, estimates]);
+
+  const selected = estimates?.find((estimate) => estimate.id === selectedId) ?? null;
+  const stage = selected?.reviewStage ?? sheet?.reviewStage ?? null;
+  const activeStep = stageIndex(selectedId ? stage : null);
+  const lines = (sheet?.summary?.lines ?? sheet?.lines ?? []).filter((line) => line.item.trim());
+  const history = selectedId ? events.filter((event) => event.estimateId === selectedId) : [];
+  const locked = stage === "in_review" || stage === "approved";
+
+  return (
+    <div className="page-stack approvals-page">
+      <h1 className="text-page-title">Approvals</h1>
+
+      <section className="surface-card approvals-card">
+        <h2>Quotation queue</h2>
+        <div className="table-scroll">
+          <table className="data-table approvals-queue">
+            <thead>
+              <tr>
+                <th scope="col">Estimate</th>
+                <th scope="col">Client</th>
+                <th scope="col">Title</th>
+                <th scope="col">Status</th>
+                <th scope="col">Total (NGN)</th>
+                <th scope="col">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {failed ? (
+                <tr>
+                  <td className="table-empty" colSpan={6}>
+                    The queue could not be loaded.
+                  </td>
+                </tr>
+              ) : estimates === null ? (
+                <tr>
+                  <td className="table-empty" colSpan={6}>
+                    Loading quotations…
+                  </td>
+                </tr>
+              ) : estimates.length === 0 ? (
+                <tr>
+                  <td className="table-empty" colSpan={6}>
+                    No quotation yet
+                  </td>
+                </tr>
+              ) : (
+                estimates.map((estimate) => (
+                  <tr key={estimate.id} className={estimate.id === selectedId ? "is-selected" : undefined}>
+                    <td className="cell-strong">{estimate.id}</td>
+                    <td>
+                      {estimate.clientName || "—"}
+                      {estimate.clientName ? <span className="queue-by"> · by {estimate.originator || "Rep 1"}</span> : null}
+                    </td>
+                    <td>{estimate.title || "—"}</td>
+                    <td>
+                      <span className="queue-status">{statusLabel(estimate.reviewStage)}</span>
+                    </td>
+                    <td>{estimate.totalNgn == null ? "—" : formatGrandTotal(estimate.totalNgn)}</td>
+                    <td>
+                      <button
+                        type="button"
+                        className="queue-view"
+                        onClick={() => router.push(`/approval?estimate=${estimate.id}`)}
+                      >
+                        View
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
-      </div>
-    );
-  }
+      </section>
 
-  return (
-    <ApprovalView
-      sheet={payload}
-      rates={payload.rates}
-      role={payload.submittedBy || "Representative"}
-    />
-  );
-}
+      <section className="surface-card approvals-card">
+        <h2>Estimate workflow · all roles</h2>
+        <div className="workflow-track" aria-hidden>
+          <span style={{ width: activeStep < 0 ? "2%" : `${((activeStep + 1) / STEPS.length) * 100}%` }} />
+        </div>
+        <ol className="workflow-pills">
+          {STEPS.map((step, index) => (
+            <li key={step}>
+              <span className={index === activeStep ? "workflow-pill is-current" : "workflow-pill"}>{step}</span>
+            </li>
+          ))}
+        </ol>
+      </section>
 
-export function ApprovalView({
-  sheet,
-  rates,
-  role,
-}: {
-  sheet: SheetRecord;
-  rates: ExchangeRateTable;
-  role: string;
-}) {
-  const summary = summarizeSheet(sheet.lines, rates);
-  const named = summary.lines.filter((line) => line.item.trim());
-  const inReview = sheet.reviewStage === "in_review" || sheet.reviewStage === "approved";
-
-  return (
-    <div className="page-stack">
-      <div className="approval-heading">
-        <h1 className="text-page-title">Approval</h1>
-        <p className="approval-kicker">
-          Estimation sheet / {sheet.estimateId}
-        </p>
-      </div>
-
-      {inReview ? (
-        <>
-          <section className="surface-card panel-card approval-banner">
-            <div className="approval-banner-copy">
-              <span className="approval-check" aria-hidden>
-                <svg viewBox="0 0 24 24" width="22" height="22">
-                  <path
-                    d="M6.5 12.2 10.2 16l7.3-8"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </span>
-              <div>
-                <h2>Estimate submitted for review</h2>
-                <p>
-                  {sheet.estimateId} · {sheet.version} is now awaiting approval. You can track its progress below.
-                </p>
-              </div>
-            </div>
-            <span className="review-pill">
-              {sheet.reviewStage === "approved" ? "Approved" : "Under line manager review"}
-            </span>
-          </section>
-
-          <div className="approval-grid">
-            <section className="surface-card panel-card">
-              <div className="approval-section-head">
-                <h2>Estimate summary</h2>
-                <p>
-                  {summary.itemCount} item{summary.itemCount === 1 ? "" : "s"} · {sheet.version}
-                </p>
-              </div>
-              <div className="table-scroll">
-                <table className="data-table approval-table">
-                  <thead>
-                    <tr>
-                      <th scope="col">Item</th>
-                      <th scope="col">Source</th>
-                      <th scope="col">Qty</th>
-                      <th scope="col">Total (NGN)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {named.map((line) => (
-                      <tr key={line.id}>
-                        <td className="approval-item">{line.item}</td>
-                        <td>{line.source}</td>
-                        <td>{line.qty || "0"}</td>
-                        <td>{formatGrandTotal(line.totalNgn)}</td>
-                      </tr>
-                    ))}
-                    <tr className="approval-grand-row">
-                      <td colSpan={3}>Grand total (NGN)</td>
-                      <td className="approval-grand">{formatGrandTotal(summary.grandTotalNgn)}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-              <p className="approval-soncap">
-                SONCAP allocated USD {formatSoncap(summary.soncapUsd)} · Locked when approved
-              </p>
-            </section>
-
-            <section className="surface-card panel-card">
-              <h2 className="progress-title">Review progress</h2>
-              <ol className="progress-list">
-                <li>
-                  <span className="progress-index is-done">1</span>
-                  <div>
-                    <p className="progress-name is-submitted">Submitted</p>
-                    <p className="progress-detail">Estimate sent for review</p>
-                  </div>
-                </li>
-                <li>
-                  <span className={sheet.reviewStage === "approved" ? "progress-index is-done" : "progress-index is-current"}>
-                    2
-                  </span>
-                  <div>
-                    <p className={sheet.reviewStage === "approved" ? "progress-name is-submitted" : "progress-name is-pending"}>
-                      Pending review
-                    </p>
-                    <p className="progress-detail">
-                      {sheet.reviewStage === "approved" ? "Line manager approved" : "Awaiting an approval decision"}
-                    </p>
-                  </div>
-                </li>
-                <li>
-                  <span className={sheet.reviewStage === "approved" ? "progress-index is-done" : "progress-index"}>3</span>
-                  <div>
-                    <p className={sheet.reviewStage === "approved" ? "progress-name is-submitted" : "progress-name is-waiting"}>
-                      Decision
-                    </p>
-                    <p className="progress-detail">
-                      {sheet.reviewStage === "approved" ? "Estimate approved and locked" : "Approval or changes requested"}
-                    </p>
-                  </div>
-                </li>
-              </ol>
-              <p className="progress-lock">The estimate will be locked once it is approved.</p>
-            </section>
+      <section className="surface-card approvals-card">
+        <div className="breakdown-head">
+          <div>
+            <h2>Cost breakdown · how it was calculated</h2>
+            <p>Can only be edited after review or can be directly edited by the reviewer</p>
           </div>
+          {locked ? (
+            <button type="button" className="add-item-btn" disabled>
+              + Add item
+            </button>
+          ) : (
+            <Link href="/estimation" className="add-item-btn">
+              + Add item
+            </Link>
+          )}
+        </div>
 
-          <div className="approval-footer">
-            <p>Submitted by {sheet.submittedBy || role} · {versionLabel(sheet.version)}</p>
-            <div className="form-actions">
-              <ButtonLink href="/estimation" variant="quiet" size="sm">
-                Back to estimation sheet
-              </ButtonLink>
-              <ButtonLink href="/estimation" variant="primary" size="sm">
-                View submitted estimate
-              </ButtonLink>
+        {selectedId && lines.length > 0 ? (
+          <>
+            <div className="table-scroll">
+              <table className="data-table breakdown-table">
+                <thead>
+                  <tr>
+                    {["#", "Item", "Source", "Currency", "Qty", "Base", "Freight", "Msc", "Bank", "Duties", "Agency"].map(
+                      (heading) => (
+                        <th key={heading} scope="col">
+                          {heading}
+                        </th>
+                      ),
+                    )}
+                  </tr>
+                </thead>
+                <tbody>
+                  {lines.map((line, index) => (
+                    <tr key={line.id}>
+                      <td>{index + 1}</td>
+                      <td>
+                        <span className="breakdown-field">{line.item}</span>
+                      </td>
+                      <td>
+                        <span className="breakdown-field">{line.source}</span>
+                      </td>
+                      <td>
+                        <span className="breakdown-field">{line.currency}</span>
+                      </td>
+                      <td>
+                        <span className="breakdown-field is-num">{line.qty || "0"}</span>
+                      </td>
+                      <td>
+                        <span className="breakdown-field is-num">{line.base || "0"}</span>
+                      </td>
+                      <td>
+                        <span className="breakdown-field is-num">{line.freight || "0"}</span>
+                      </td>
+                      <td>
+                        <span className="breakdown-field is-num">{line.msc || "0"}</span>
+                      </td>
+                      <td className="breakdown-calc">{formatAmount(line.bank)}</td>
+                      <td className="breakdown-calc">{formatAmount(line.duties)}</td>
+                      <td className="breakdown-calc">{formatAmount(line.agency)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
+            <p className="breakdown-rules">
+              Rules used: bank 0.25% of base · customs duties 10.5% of (base + freight) · agency 7.5% of base · delivery
+              1.5% of base · markup 30% of (base + freight). Sea freight adds warehouse 12.5% of base plus USD 650 SONCAP
+              split across sea items. Foreign totals are multiplied by the exchange rate.
+            </p>
+            <div className="breakdown-grand">
+              <span>Grand total (NGN)</span>
+              <strong>{formatGrandTotal(sheet?.summary?.grandTotalNgn ?? selected?.totalNgn ?? 0)}</strong>
+            </div>
+          </>
+        ) : (
+          <div className="table-scroll">
+            <table className="data-table approvals-queue">
+              <thead>
+                <tr>
+                  <th scope="col">Item</th>
+                  <th scope="col">Total</th>
+                  <th scope="col">Total (NGN)</th>
+                  <th scope="col">Extended (NGN)</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td className="table-empty" colSpan={4}>
+                    No quotation yet
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </div>
-        </>
-      ) : (
-        <section className="surface-card panel-card approval-empty">
-          <h2>No estimate is in review</h2>
-          <p>Submit the estimation sheet and the line manager review will appear here.</p>
-          <Link href="/estimation" className="table-action">
-            Open estimation sheet
-          </Link>
-        </section>
-      )}
+        )}
+      </section>
+
+      <section className="surface-card approvals-card">
+        <h2>History</h2>
+        {history.length === 0 ? (
+          <p className="history-empty">No history yet</p>
+        ) : (
+          <ul className="history-list">
+            {history.map((event) => (
+              <li key={event.id}>
+                <span>{historyStamp(event.at)}</span>
+                <span aria-hidden> · </span>
+                <strong>{actorLabel(event.actor)}</strong>
+                <span aria-hidden> · </span>
+                <strong>{event.estimateId}</strong>
+                <span aria-hidden> · </span>
+                <span>{historyAction(event)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
     </div>
   );
 }

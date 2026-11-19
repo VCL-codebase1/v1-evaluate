@@ -46,7 +46,7 @@ export function QuotationTable({ estimates }: { estimates: EstimateRecord[] }) {
                 <td>{STATUS_LABEL[estimate.status]}</td>
                 <td>{money(estimate.totalNgn)}</td>
                 <td>
-                  <Link href="/estimation" className="table-action">
+                  <Link href={`/approval?estimate=${estimate.id}`} className="table-action">
                     View
                   </Link>
                 </td>
