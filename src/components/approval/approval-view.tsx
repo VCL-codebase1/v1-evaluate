@@ -56,6 +56,15 @@ function historyAction(event: AuditEvent) {
   return event.detail || "Updated";
 }
 
+function fieldValue(value: string) {
+  const amount = Number(value.replace(/,/g, ""));
+  if (!value.trim() || !Number.isFinite(amount)) return value || "0";
+  if (Number.isInteger(amount) && Math.abs(amount) >= 100000) {
+    return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(amount);
+  }
+  return value;
+}
+
 function historyStamp(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
@@ -231,11 +240,11 @@ export function ApprovalPanel() {
           </div>
           {locked ? (
             <button type="button" className="add-item-btn" disabled>
-              + Add item
+              <span aria-hidden>•</span> Add item
             </button>
           ) : (
             <Link href="/estimation" className="add-item-btn">
-              + Add item
+              <span aria-hidden>•</span> Add item
             </Link>
           )}
         </div>
@@ -260,26 +269,28 @@ export function ApprovalPanel() {
                     <tr key={line.id}>
                       <td>{index + 1}</td>
                       <td>
-                        <span className="breakdown-field">{line.item}</span>
+                        <input className="sheet-input sheet-input-item" value={line.item} readOnly aria-label={`Item ${index + 1}`} />
                       </td>
                       <td>
-                        <span className="breakdown-field">{line.source}</span>
+                        <select className="sheet-select" value={line.source} disabled aria-label={`Source ${index + 1}`}>
+                          <option>{line.source}</option>
+                        </select>
                       </td>
                       <td>
-                        <span className="breakdown-field">{line.currency}</span>
+                        <select className="sheet-select" value={line.currency} disabled aria-label={`Currency ${index + 1}`}>
+                          <option>{line.currency}</option>
+                        </select>
                       </td>
-                      <td>
-                        <span className="breakdown-field is-num">{line.qty || "0"}</span>
-                      </td>
-                      <td>
-                        <span className="breakdown-field is-num">{line.base || "0"}</span>
-                      </td>
-                      <td>
-                        <span className="breakdown-field is-num">{line.freight || "0"}</span>
-                      </td>
-                      <td>
-                        <span className="breakdown-field is-num">{line.msc || "0"}</span>
-                      </td>
+                      {(["qty", "base", "freight", "msc"] as const).map((field) => (
+                        <td key={field}>
+                          <input
+                            className="sheet-input sheet-input-num"
+                            value={fieldValue(line[field] || "0")}
+                            readOnly
+                            aria-label={`${field} ${index + 1}`}
+                          />
+                        </td>
+                      ))}
                       <td className="breakdown-calc">{formatAmount(line.bank)}</td>
                       <td className="breakdown-calc">{formatAmount(line.duties)}</td>
                       <td className="breakdown-calc">{formatAmount(line.agency)}</td>
@@ -322,7 +333,7 @@ export function ApprovalPanel() {
       </section>
 
       <section className="surface-card approvals-card">
-        <h2>History</h2>
+        <h2 className="history-title">History</h2>
         {history.length === 0 ? (
           <p className="history-empty">No history yet</p>
         ) : (
