@@ -11,8 +11,13 @@ export function Topbar({
 }) {
   return (
     <header className="topbar">
-      <p className="text-signed-in">
-        Signed in as <strong>{role}</strong> · {estimateId} · {version}
+      <p className="session-pill">
+        <span>Signed in as</span>
+        <strong>{role}</strong>
+        <span aria-hidden>·</span>
+        <strong>{estimateId}</strong>
+        <span aria-hidden>·</span>
+        <strong>{version}</strong>
       </p>
       <SignOutButton />
     </header>

@@ -22,16 +22,49 @@ export async function POST(request: Request) {
 
   const body = (await request.json().catch(() => null)) as {
     title?: string;
+    clientName?: string;
+    tenderNumber?: string;
+    contact?: string;
+    department?: string;
+    dateReceived?: string;
+    deadline?: string;
+    accountManager?: string;
+    originator?: string;
+    description?: string;
+    remarks?: string;
+    attachments?: string[];
     mode?: string;
     status?: EstimateStatus;
   } | null;
 
   const title = body?.title?.trim() ?? "";
+  const clientName = body?.clientName?.trim() ?? "";
+  if (!clientName) {
+    return NextResponse.json({ error: "Enter the client name.", field: "clientName" }, { status: 400 });
+  }
   if (!title) {
-    return NextResponse.json({ error: "Enter an estimate title." }, { status: 400 });
+    return NextResponse.json({ error: "Enter the RFQ title.", field: "title" }, { status: 400 });
   }
 
   const status = body?.status && STATUSES.has(body.status) ? body.status : "pending";
-  const estimate = createEstimate({ title, mode: body?.mode, status });
+  const attachments = Array.isArray(body?.attachments)
+    ? body.attachments.filter((name): name is string => typeof name === "string")
+    : [];
+  const estimate = createEstimate({
+    title,
+    clientName,
+    tenderNumber: body?.tenderNumber,
+    contact: body?.contact,
+    department: body?.department,
+    dateReceived: body?.dateReceived,
+    deadline: body?.deadline,
+    accountManager: body?.accountManager,
+    originator: body?.originator,
+    description: body?.description,
+    remarks: body?.remarks,
+    attachments,
+    mode: body?.mode,
+    status,
+  });
   return NextResponse.json({ estimate }, { status: 201 });
 }

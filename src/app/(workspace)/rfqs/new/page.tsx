@@ -1,13 +1,19 @@
 import type { Metadata } from "next";
-import { ModulePage } from "@/components/dashboard/module-page";
+import { Suspense } from "react";
+import { NewRfqForm } from "@/components/rfq/new-rfq-form";
+import { getSession } from "@/lib/session";
 
-export const metadata: Metadata = { title: "New RFQ estimate" };
+export const metadata: Metadata = { title: "New RFQ registration" };
+
+async function NewRfqSession() {
+  const session = await getSession();
+  return <NewRfqForm originator={session?.email ?? ""} />;
+}
 
 export default function NewRfqPage() {
   return (
-    <ModulePage
-      title="New RFQ estimate"
-      description="The estimate form is next. This route is ready for the sourcing, freight, markup, and approval fields."
-    />
+    <Suspense fallback={<NewRfqForm originator="" />}>
+      <NewRfqSession />
+    </Suspense>
   );
 }

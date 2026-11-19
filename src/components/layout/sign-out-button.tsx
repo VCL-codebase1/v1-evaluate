@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
 
 export function SignOutButton() {
   const router = useRouter();
@@ -15,14 +16,8 @@ export function SignOutButton() {
   }
 
   return (
-    <button
-      type="button"
-      className="btn btn-signout"
-      onClick={signOut}
-      disabled={pending}
-      aria-busy={pending}
-    >
+    <Button variant="danger" onClick={signOut} disabled={pending} aria-busy={pending}>
       Sign out
-    </button>
+    </Button>
   );
 }

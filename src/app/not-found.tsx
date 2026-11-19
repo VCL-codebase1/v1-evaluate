@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { ButtonLink } from "@/components/ui/button";
 
 export default function NotFound() {
   return (
@@ -6,9 +6,9 @@ export default function NotFound() {
       <div className="auth-form">
         <h1 className="text-welcome">Page not found</h1>
         <p className="text-subtitle">That screen is not part of the workspace yet.</p>
-        <Link href="/" className="btn btn-primary btn-xl">
+        <ButtonLink href="/" variant="primary" size="xl">
           Back to V11 Estimate
-        </Link>
+        </ButtonLink>
       </div>
     </main>
   );

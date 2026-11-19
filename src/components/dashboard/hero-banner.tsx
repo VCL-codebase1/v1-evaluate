@@ -8,7 +8,7 @@ export function HeroBanner({ role }: { role: string }) {
         <h1 className="text-hero-title">Create your quotations</h1>
         <p className="text-hero-sub">Create your first estimate</p>
       </div>
-      <ButtonLink href="/rfqs/new" variant="white" size="lg">
+      <ButtonLink href="/rfqs/new" variant="white" size="hero" fill>
         Create new RFQ Estimate
       </ButtonLink>
     </section>

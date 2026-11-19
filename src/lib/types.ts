@@ -7,12 +7,65 @@ export type SessionUser = {
 
 export type EstimateStatus = "pending" | "approved" | "rejected";
 
+export type ReviewStage = "draft" | "in_review" | "approved" | "returned";
+
+export type SourceMode = "Local" | "Air" | "Sea";
+
+export type SheetCurrency = "NGN" | "USD" | "EUR" | "GBP";
+
 export type EstimateRecord = {
   id: string;
   title: string;
+  clientName: string;
+  tenderNumber: string;
+  contact: string;
+  department: string;
+  dateReceived: string;
+  deadline: string;
+  accountManager: string;
+  originator: string;
+  description: string;
+  remarks: string;
+  attachments: string[];
   mode: string;
   status: EstimateStatus;
+  reviewStage: ReviewStage;
+  version: string;
+  submittedAt: string | null;
+  submittedBy: string | null;
+  totalNgn: number | null;
   createdAt: string;
+};
+
+export type SheetLine = {
+  id: string;
+  item: string;
+  source: SourceMode;
+  currency: SheetCurrency;
+  qty: string;
+  base: string;
+  freight: string;
+  msc: string;
+};
+
+export type SheetRecord = {
+  estimateId: string;
+  version: string;
+  reviewStage: ReviewStage;
+  lines: SheetLine[];
+  submittedAt: string | null;
+  submittedBy: string | null;
+};
+
+export type ExchangeRateTable = Record<SheetCurrency, number>;
+
+export type AuditEvent = {
+  id: string;
+  at: string;
+  actor: string;
+  action: string;
+  estimateId: string;
+  detail: string;
 };
 
 export type StatTone = "purple" | "orange" | "green" | "red";
