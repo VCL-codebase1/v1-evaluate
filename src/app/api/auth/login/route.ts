@@ -23,9 +23,11 @@ export async function POST(request: Request) {
     );
   }
 
+  const manager = /manager/i.test(result.email);
   const session: SessionUser = {
     email: result.email,
-    role: "Representative",
+    role: manager ? "Line Manager" : "Representative",
+    name: manager ? "Manager 1" : "Rep 1",
     estimateId: "EST-2026-001",
     version: "v1",
   };

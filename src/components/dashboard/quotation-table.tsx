@@ -1,22 +1,36 @@
 import Link from "next/link";
-import type { EstimateRecord, EstimateStatus } from "@/lib/types";
+import type { EstimateRecord } from "@/lib/types";
 
-const STATUS_LABEL: Record<EstimateStatus, string> = {
-  pending: "Pending",
-  approved: "Approved",
-  rejected: "Returned",
-};
+function statusOf(estimate: EstimateRecord, manager: boolean) {
+  if (estimate.reviewStage === "approved") return { label: "Finally Approved", tone: "approved", review: false };
+  if (estimate.reviewStage === "returned" || estimate.status === "rejected") {
+    return { label: "Returned to Rep", tone: "returned", review: false };
+  }
+  if (estimate.reviewStage === "draft") return { label: "Draft", tone: "draft", review: false };
+  return {
+    label: "Under Line Manager Review",
+    tone: "review",
+    review: manager,
+  };
+}
 
 function money(value: number | null) {
   if (value == null) return "—";
-  return new Intl.NumberFormat("en-NG", { maximumFractionDigits: 2 }).format(value);
+  return new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
 }
 
 function cell(value: string) {
   return value.trim() ? value : "—";
 }
 
-export function QuotationTable({ estimates }: { estimates: EstimateRecord[] }) {
+export function QuotationTable({
+  estimates,
+  role = "Representative",
+}: {
+  estimates: EstimateRecord[];
+  role?: string;
+}) {
+  const manager = role === "Line Manager";
   return (
     <div className="table-scroll">
       <table className="data-table">
@@ -38,20 +52,29 @@ export function QuotationTable({ estimates }: { estimates: EstimateRecord[] }) {
               </td>
             </tr>
           ) : (
-            estimates.map((estimate) => (
+            estimates.map((estimate) => {
+              const status = statusOf(estimate, manager);
+              return (
               <tr key={estimate.id}>
                 <td className="cell-strong">{estimate.id}</td>
-                <td>{cell(estimate.clientName)}</td>
+                <td>
+                  {cell(estimate.clientName)}
+                  {estimate.clientName ? <span> · by {estimate.originator || "Rep 1"}</span> : null}
+                </td>
                 <td>{cell(estimate.title)}</td>
-                <td>{STATUS_LABEL[estimate.status]}</td>
+                <td>
+                  <span className={`queue-pill is-${status.tone}`}>{status.label}</span>
+                  {status.review ? <span className="needs-you">Needs you</span> : null}
+                </td>
                 <td>{money(estimate.totalNgn)}</td>
                 <td>
-                  <Link href={`/approval?estimate=${estimate.id}`} className="table-action">
-                    View
+                  <Link href={`/approval?estimate=${estimate.id}`} className="queue-action">
+                    {status.review ? "Review" : "View"}
                   </Link>
                 </td>
               </tr>
-            ))
+              );
+            })
           )}
         </tbody>
       </table>

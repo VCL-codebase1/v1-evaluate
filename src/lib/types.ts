@@ -1,6 +1,7 @@
 export type SessionUser = {
   email: string;
   role: string;
+  name: string;
   estimateId: string;
   version: string;
 };

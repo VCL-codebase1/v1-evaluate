@@ -204,7 +204,7 @@ export function ApprovalPanel() {
                     <td>
                       <button
                         type="button"
-                        className="queue-view"
+                        className="queue-action"
                         onClick={() => router.push(`/approval?estimate=${estimate.id}`)}
                       >
                         View

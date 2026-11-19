@@ -19,6 +19,7 @@ export function decodeSession(value: string | undefined | null): SessionUser | n
     return {
       email: parsed.email,
       role: parsed.role,
+      name: parsed.name || parsed.role,
       estimateId: parsed.estimateId,
       version: parsed.version,
     };

@@ -1,14 +1,16 @@
 export function WorkflowPanel({
   steps,
   progress,
+  title = "Estimate workflow · all roles",
 }: {
   steps: readonly string[];
   progress: number;
+  title?: string;
 }) {
   return (
     <section className="surface-card" aria-labelledby="workflow-title">
       <h2 id="workflow-title" className="text-section">
-        Estimate workflow · all roles
+        {title}
       </h2>
       <div className="progress" aria-hidden>
         <span className="progress-bar" style={{ width: `${progress}%` }} />

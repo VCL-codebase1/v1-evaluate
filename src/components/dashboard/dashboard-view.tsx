@@ -5,6 +5,8 @@ import { StatCard } from "@/components/dashboard/stat-card";
 import { WorkflowPanel } from "@/components/dashboard/workflow-panel";
 import type { DashboardSummary, EstimateRecord } from "@/lib/types";
 
+const MANAGER_STEPS = ["Estimate Created", "Approved by Sales Director", "Quotation Generated"] as const;
+
 export function DashboardView({
   role,
   summary,
@@ -14,10 +16,17 @@ export function DashboardView({
   summary: DashboardSummary;
   estimates: EstimateRecord[];
 }) {
+  const manager = role === "Line Manager";
+  const waiting = estimates.filter((estimate) => estimate.reviewStage === "in_review").length;
+
   return (
     <div className="stack">
-      <HeroBanner role={role} />
-      <WorkflowPanel steps={summary.steps} progress={summary.progress} />
+      <HeroBanner role={role} waiting={waiting} />
+      <WorkflowPanel
+        steps={manager ? MANAGER_STEPS : summary.steps}
+        progress={summary.progress}
+        title={manager && estimates.length === 0 ? "Estimate workflow" : "Estimate workflow · all roles"}
+      />
       <div className="stat-grid">
         {summary.stats.map((stat) => (
           <StatCard key={stat.key} stat={stat} />
@@ -42,13 +51,13 @@ export function DashboardView({
           <h2 id="queue-title" className="text-panel-title">
             Quotation queue
           </h2>
-          <QuotationTable estimates={estimates} />
+          <QuotationTable estimates={estimates} role={role} />
         </section>
         <section className="surface-card panel-card notice-card" aria-labelledby="notice-title">
           <h2 id="notice-title" className="text-panel-title">
             Notification
           </h2>
-          {estimates.length === 0 ? (
+          {estimates.length === 0 || manager ? (
             <p className="notice-copy">No estimate created yet</p>
           ) : (
             <ul className="notice-list">

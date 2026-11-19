@@ -8,6 +8,7 @@ export async function SessionTopbar() {
   return (
     <Topbar
       role={session.role}
+      name={session.name}
       estimateId={session.estimateId}
       version={session.version}
     />
