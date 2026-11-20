@@ -1,8 +1,6 @@
 /**
  * Workspace data access.
- * Routes talk to this module only. It currently keeps data in memory so the
- * app can run before a managed database is attached. Swap this adapter for
- * Aiven Postgres later; do not open a database connection from here yet.
+ * Uses Postgres (DATABASE_URL) for persistence. Callers must await these functions.
  */
 export {
   createEstimate,
@@ -22,4 +20,4 @@ export {
   sheetResponse,
   submitSheet,
   updateEstimate,
-} from "@/lib/db/repository";
+} from "@/lib/db/postgres-repository";

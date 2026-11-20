@@ -10,7 +10,7 @@ export async function GET(_request: Request, context: Context) {
   if (!auth.session) return auth.response;
 
   const { id } = await context.params;
-  return NextResponse.json(sheetResponse(id, auth.session.version));
+  return NextResponse.json(await sheetResponse(id, auth.session.version));
 }
 
 export async function PUT(request: Request, context: Context) {
@@ -23,7 +23,7 @@ export async function PUT(request: Request, context: Context) {
     return NextResponse.json({ error: "Send the sheet lines." }, { status: 400 });
   }
 
-  const result = saveSheet(id, body.lines, auth.session.version, auth.session.role);
+  const result = await saveSheet(id, body.lines, auth.session.version, auth.session.role);
   if ("error" in result) return NextResponse.json({ error: result.error }, { status: 409 });
   return NextResponse.json(result.sheet);
 }

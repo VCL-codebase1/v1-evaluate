@@ -4,7 +4,7 @@ export const openApiDocument = {
     title: "V11 Estimate API",
     version: "1.0.0",
     description:
-      "Representative approval flows and estimate workspace. Authenticate with POST /api/v1/auth/login. Seeded users use password Estimate123!: rep1@v11.estimate (Representative), manager@v11.estimate (Line Manager), director@v11.estimate (Sales Director). Send the access token as Authorization: Bearer. This API is not used by the web workspace.",
+      "Bearer-token API for estimate workflows. Authenticate with POST /api/v1/auth/login using provisioned user credentials and send the access token as Authorization: Bearer <token>. This API is separate from the web workspace.",
   },
   servers: [{ url: "/" }],
   tags: [

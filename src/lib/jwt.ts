@@ -11,7 +11,12 @@ export type JwtClaims = {
 };
 
 function secret() {
-  return process.env.JWT_SECRET || "v11-estimate-dev-jwt-secret";
+  const value = process.env.JWT_SECRET;
+  if (value) return value;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("JWT_SECRET must be set in production.");
+  }
+  return "v11-estimate-dev-jwt-secret";
 }
 
 function encode(value: string) {

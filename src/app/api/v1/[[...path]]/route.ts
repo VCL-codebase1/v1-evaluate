@@ -26,22 +26,27 @@ import {
 import { openApiDocument } from "@/lib/backend/openapi";
 import { signJwt, verifyJwt } from "@/lib/jwt";
 import type { ExchangeRateTable, SheetLine } from "@/lib/types";
+import { log, requestMeta } from "@/lib/observability/logger";
+import { checkThrottle, clearThrottle, registerFailure, throttleSubject } from "@/lib/auth/throttle";
+import { isUserLocked, markLoginFailure, markLoginSuccess } from "@/lib/auth/users";
 
 type Context = { params: Promise<{ path?: string[] }> };
 
-function json(body: unknown, status = 200) {
-  return NextResponse.json(body, { status });
+function json(body: unknown, status = 200, headers?: HeadersInit) {
+  return NextResponse.json(body, { status, headers });
 }
 
-function bearer(request: Request) {
+async function bearer(request: Request) {
   const header = request.headers.get("authorization") ?? "";
   const token = header.toLowerCase().startsWith("bearer ") ? header.slice(7).trim() : "";
   const claims = verifyJwt(token);
   if (!claims || claims.typ !== "access") return null;
-  return findUserById(claims.sub);
+  const user = await findUserById(claims.sub);
+  if (!user || !user.isActive || isUserLocked(user)) return null;
+  return user;
 }
 
-function issueTokens(user: ApiUser) {
+async function issueTokens(user: ApiUser) {
   const accessToken = signJwt(
     { sub: user.id, role: user.role, name: user.name, typ: "access" },
     60 * 15,
@@ -52,7 +57,7 @@ function issueTokens(user: ApiUser) {
     60 * 60 * 24 * 7,
   );
   const claims = verifyJwt(refreshToken);
-  saveRefreshToken(jti, user.id, claims?.exp ?? 0);
+  await saveRefreshToken(jti, user.id, claims?.exp ?? 0);
   return { accessToken, refreshToken, tokenType: "Bearer", expiresIn: 60 * 15, user: publicUser(user) };
 }
 
@@ -71,34 +76,73 @@ async function handle(request: Request, context: Context) {
 
   if (method === "POST" && key === "auth/login") {
     const body = await readJson(request);
-    const email = typeof body?.email === "string" ? body.email : "";
+    const email = typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
     const password = typeof body?.password === "string" ? body.password : "";
-    const user = findUserByEmail(email);
-    if (!user || !verifyPassword(user, password)) {
+    const meta = requestMeta(request);
+    const ipSubject = throttleSubject("v1login:ip", meta.ip);
+    const emailSubject = throttleSubject("v1login:email", email || "blank");
+    const ipCfg = { scope: "v1login:ip", subject: ipSubject, windowMs: 15 * 60_000, maxFailures: 20, blockMs: 15 * 60_000 };
+    const emailCfg = { scope: "v1login:email", subject: emailSubject, windowMs: 15 * 60_000, maxFailures: 8, blockMs: 15 * 60_000 };
+
+    const [ipCheck, emailCheck] = await Promise.all([checkThrottle(ipCfg), checkThrottle(emailCfg)]);
+    const blocked = ipCheck.blocked ? ipCheck : emailCheck.blocked ? emailCheck : null;
+    if (blocked) {
+      log.warn("v1.auth.login.rate_limited", { ip: meta.ip });
+      return json({ error: "Too many sign-in attempts. Try again later." }, 429, { "Retry-After": String(blocked.retryAfterSec) });
+    }
+
+    const user = email ? await findUserByEmail(email) : null;
+    if (!user || !user.isActive || isUserLocked(user) || !verifyPassword(user, password)) {
+      if (user && user.isActive && !isUserLocked(user)) {
+        await markLoginFailure(user.id);
+      }
+      await Promise.all([registerFailure(ipCfg), registerFailure(emailCfg)]);
+      log.warn("v1.auth.login.failed", { ip: meta.ip, reason: !user ? "not_found" : !user.isActive ? "inactive" : isUserLocked(user) ? "locked" : "bad_password" });
       return json({ error: "Email or password is incorrect." }, 401);
     }
-    return json(issueTokens(user));
+
+    await Promise.all([markLoginSuccess(user.id), clearThrottle("v1login:ip", ipSubject), clearThrottle("v1login:email", emailSubject)]);
+    log.info("v1.auth.login.success", { userId: user.id, role: user.role });
+    return json(await issueTokens(user));
   }
 
   if (method === "POST" && key === "auth/refresh") {
+    const meta = requestMeta(request);
+    const ipCfg = { scope: "v1refresh:ip", subject: throttleSubject("v1refresh:ip", meta.ip), windowMs: 15 * 60_000, maxFailures: 30, blockMs: 15 * 60_000 };
+    const ipCheck = await checkThrottle(ipCfg);
+    if (ipCheck.blocked) {
+      log.warn("v1.auth.refresh.rate_limited", { ip: meta.ip });
+      return json({ error: "Too many attempts. Try again later." }, 429, { "Retry-After": String(ipCheck.retryAfterSec) });
+    }
     const body = await readJson(request);
     const refreshToken = typeof body?.refreshToken === "string" ? body.refreshToken : "";
     const claims = verifyJwt(refreshToken);
-    if (!claims || claims.typ !== "refresh" || !claims.jti) return json({ error: "Refresh token is invalid." }, 401);
-    const stored = takeRefreshToken(claims.jti);
-    const user = stored ? findUserById(stored.userId) : null;
-    if (!stored || stored.userId !== claims.sub || !user) return json({ error: "Refresh token is invalid." }, 401);
-    return json(issueTokens(user));
+    if (!claims || claims.typ !== "refresh" || !claims.jti) {
+      await registerFailure(ipCfg);
+      return json({ error: "Refresh token is invalid." }, 401);
+    }
+    const stored = await takeRefreshToken(claims.jti);
+    const user = stored ? await findUserById(stored.userId) : null;
+    if (!stored || stored.userId !== claims.sub || !user || !user.isActive || isUserLocked(user)) {
+      await registerFailure(ipCfg);
+      return json({ error: "Refresh token is invalid." }, 401);
+    }
+    log.info("v1.auth.refresh.success", { userId: user.id });
+    return json(await issueTokens(user));
   }
 
-  const user = bearer(request);
+  const user = await bearer(request);
   if (!user) return json({ error: "Sign in with a bearer access token." }, 401);
+
+  const role = user.role;
+  const canManageRates = role === "Admin" || role === "Sales Director" || role === "Line Manager";
 
   if (method === "POST" && key === "auth/logout") {
     const body = await readJson(request);
     const refreshToken = typeof body?.refreshToken === "string" ? body.refreshToken : "";
     const claims = verifyJwt(refreshToken);
-    if (claims?.jti) dropRefreshToken(claims.jti);
+    if (claims?.jti) await dropRefreshToken(claims.jti);
+    log.info("v1.auth.logout", { userId: user.id });
     return new NextResponse(null, { status: 204 });
   }
 
@@ -129,7 +173,9 @@ async function handle(request: Request, context: Context) {
   }
 
   if (method === "PUT" && key === "exchange-rates") {
+    if (!canManageRates) return json({ error: "You do not have access to this action." }, 403);
     const body = (await readJson(request)) as Partial<ExchangeRateTable> | null;
+    log.info("v1.exchange_rates.updated", { userId: user.id });
     return json({ rates: saveRates(body ?? {}) });
   }
 

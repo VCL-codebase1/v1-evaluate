@@ -1,12 +1,17 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/api";
 import { decideSheet } from "@/lib/db";
+import { canDecideEstimate } from "@/lib/auth/roles";
+import { log } from "@/lib/observability/logger";
 
 type Context = { params: Promise<{ id: string }> };
 
 export async function POST(request: Request, context: Context) {
   const auth = await requireSession();
   if (!auth.session) return auth.response;
+  if (!canDecideEstimate(auth.session.role)) {
+    return NextResponse.json({ error: "You do not have access to this action." }, { status: 403 });
+  }
 
   const { id } = await context.params;
   const body = (await request.json().catch(() => null)) as { decision?: "approved" | "returned" } | null;
@@ -14,7 +19,8 @@ export async function POST(request: Request, context: Context) {
     return NextResponse.json({ error: "Choose approved or returned." }, { status: 400 });
   }
 
-  const result = decideSheet(id, body.decision, auth.session.role);
+  const result = await decideSheet(id, body.decision, auth.session.role);
   if ("error" in result) return NextResponse.json({ error: result.error }, { status: 409 });
+  log.info("estimate.decision", { estimateId: id, decision: body.decision, by: auth.session.email, role: auth.session.role });
   return NextResponse.json(result.sheet);
 }

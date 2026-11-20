@@ -108,10 +108,7 @@ export function ApprovalPanel() {
   }, []);
 
   useEffect(() => {
-    if (!selectedId) {
-      setSheet(null);
-      return;
-    }
+    if (!selectedId) return;
     let active = true;
     fetch(`/api/estimates/${selectedId}/sheet`)
       .then((response) => {
@@ -145,9 +142,10 @@ export function ApprovalPanel() {
   }, [selectedId, estimates]);
 
   const selected = estimates?.find((estimate) => estimate.id === selectedId) ?? null;
-  const stage = selected?.reviewStage ?? sheet?.reviewStage ?? null;
+  const activeSheet = selectedId && sheet?.estimateId === selectedId ? sheet : null;
+  const stage = selected?.reviewStage ?? activeSheet?.reviewStage ?? null;
   const activeStep = stageIndex(selectedId ? stage : null);
-  const lines = (sheet?.summary?.lines ?? sheet?.lines ?? []).filter((line) => line.item.trim());
+  const lines = (activeSheet?.summary?.lines ?? activeSheet?.lines ?? []).filter((line) => line.item.trim());
   const history = selectedId ? events.filter((event) => event.estimateId === selectedId) : [];
   const locked = stage === "in_review" || stage === "approved";
 
@@ -306,7 +304,7 @@ export function ApprovalPanel() {
             </p>
             <div className="breakdown-grand">
               <span>Grand total (NGN)</span>
-              <strong>{formatGrandTotal(sheet?.summary?.grandTotalNgn ?? selected?.totalNgn ?? 0)}</strong>
+              <strong>{formatGrandTotal(activeSheet?.summary?.grandTotalNgn ?? selected?.totalNgn ?? 0)}</strong>
             </div>
           </>
         ) : (

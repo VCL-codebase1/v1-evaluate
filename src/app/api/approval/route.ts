@@ -6,5 +6,5 @@ export async function GET() {
   const auth = await requireSession();
   if (!auth.session) return auth.response;
 
-  return NextResponse.json(sheetResponse(auth.session.estimateId, auth.session.version));
+  return NextResponse.json(await sheetResponse(auth.session.estimateId, auth.session.version));
 }
