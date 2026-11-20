@@ -8,7 +8,7 @@ import { log } from "@/lib/observability/logger";
 export async function GET() {
   const auth = await requireSession();
   if (!auth.session) return auth.response;
-  return NextResponse.json({ rates: await getExchangeRates() });
+  return NextResponse.json({ rates: await getExchangeRates(auth.session.organizationId) });
 }
 
 export async function PUT(request: Request) {
@@ -19,7 +19,7 @@ export async function PUT(request: Request) {
   }
 
   const body = (await request.json().catch(() => null)) as { rates?: Partial<ExchangeRateTable> } | null;
-  const rates = await saveExchangeRates(body?.rates ?? {});
-  log.info("exchange_rates.updated", { by: auth.session.email, role: auth.session.role });
+  const rates = await saveExchangeRates(auth.session.organizationId, body?.rates ?? {});
+  log.info("exchange_rates.updated", { by: auth.session.email, role: auth.session.role, organizationId: auth.session.organizationId });
   return NextResponse.json({ rates });
 }

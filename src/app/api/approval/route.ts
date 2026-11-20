@@ -6,5 +6,7 @@ export async function GET() {
   const auth = await requireSession();
   if (!auth.session) return auth.response;
 
-  return NextResponse.json(await sheetResponse(auth.session.estimateId, auth.session.version));
+  const sheet = await sheetResponse(auth.session.estimateId, auth.session.organizationId, auth.session.version);
+  if (!sheet) return NextResponse.json({ error: "Estimate not found." }, { status: 404 });
+  return NextResponse.json(sheet);
 }

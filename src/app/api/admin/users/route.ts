@@ -11,7 +11,7 @@ export async function GET() {
   if (!canManageUsers(session.role)) {
     return NextResponse.json({ error: "You do not have access to this action." }, { status: 403 });
   }
-  const users = await listUsers();
+  const users = await listUsers(session.organizationId);
   return NextResponse.json({ users });
 }
 
@@ -41,21 +41,34 @@ export async function POST(request: Request) {
   }
   if (!name) return NextResponse.json({ error: "Enter a name.", field: "name" }, { status: 400 });
   if (!isRole(role)) return NextResponse.json({ error: "Select a valid role.", field: "role" }, { status: 400 });
+  if (role === "Super Admin") {
+    return NextResponse.json(
+      { error: "Super Admin accounts are created when creating an organization.", field: "role" },
+      { status: 400 },
+    );
+  }
   if (password.length < 8) {
     return NextResponse.json({ error: "Password must be at least 8 characters.", field: "password" }, { status: 400 });
   }
 
   try {
     const admin = createSupabaseAdminClient();
-    const existingProfile = await findUserByEmail(email);
+    const existingProfile = await findUserByEmail(email, session.organizationId);
 
-    // Try to create Supabase auth user; if email already exists, reuse it.
+    const supaUserMeta = {
+      name,
+      organization_id: session.organizationId,
+      organization_name: session.organizationName,
+    };
+    const supaAppMeta = { role, organization_id: session.organizationId };
+
+    // Try to create Supabase auth user; if email already exists globally, reuse it.
     const { data: created, error: createError } = await admin.auth.admin.createUser({
       email,
       password,
       email_confirm: true,
-      user_metadata: { name },
-      app_metadata: { role },
+      user_metadata: supaUserMeta,
+      app_metadata: supaAppMeta,
     });
 
     let authUserId = created.user?.id ?? null;
@@ -66,35 +79,42 @@ export async function POST(request: Request) {
         log.warn("admin.user.supabase_create_failed", { by: session.email, email, message: msg });
         return NextResponse.json({ error: msg || "Unable to provision Supabase auth user." }, { status: 400 });
       }
-      // Fallback: locate existing auth user by listing (admin API); if unavailable, require manual link.
       const { data: listData } = await admin.auth.admin.listUsers({ page: 1, perPage: 200 });
       const found = listData?.users?.find((u) => (u.email || "").toLowerCase() === email);
       authUserId = found?.id ?? existingProfile?.authUserId ?? null;
       if (authUserId) {
-        await admin.auth.admin.updateUserById(authUserId, {
+        const { error: updErr } = await admin.auth.admin.updateUserById(authUserId, {
           password,
           email_confirm: true,
-          user_metadata: { name },
-          app_metadata: { role },
+          user_metadata: supaUserMeta,
+          app_metadata: supaAppMeta,
         });
+        if (updErr) {
+          log.warn("admin.user.supabase_update_failed", { by: session.email, email, message: updErr.message });
+        }
       }
     }
 
     let user;
     if (existingProfile) {
-      user = await updateUserAdmin(existingProfile.id, {
-        name,
-        role,
-        isActive: true,
-        authUserId,
-        resetPassword: password,
-        mustChangePassword,
-      });
+      user = await updateUserAdmin(
+        existingProfile.id,
+        {
+          name,
+          role,
+          isActive: true,
+          authUserId,
+          resetPassword: password,
+          mustChangePassword,
+        },
+        session.organizationId,
+      );
     } else {
       user = await createUser({
         email,
         name,
         role,
+        organizationId: session.organizationId,
         password,
         authUserId,
         mustChangePassword,
@@ -103,7 +123,7 @@ export async function POST(request: Request) {
     }
 
     if (!user) return NextResponse.json({ error: "Unable to create user." }, { status: 400 });
-    log.info("admin.user.created", { by: session.email, userId: user.id, role: user.role, auth: "supabase" });
+    log.info("admin.user.created", { by: session.email, userId: user.id, role: user.role, auth: "supabase", organizationId: session.organizationId });
     return NextResponse.json({ user }, { status: existingProfile ? 200 : 201 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to create user.";

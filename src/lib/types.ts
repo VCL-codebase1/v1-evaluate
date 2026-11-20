@@ -4,6 +4,8 @@ export type SessionUser = {
   name: string;
   estimateId: string;
   version: string;
+  organizationId: string;
+  organizationName: string;
 };
 
 export type EstimateStatus = "pending" | "approved" | "rejected";
@@ -95,4 +97,11 @@ export type DashboardSummary = {
   steps: readonly string[];
   progress: number;
   stats: DashboardStat[];
+};
+
+export type OrganizationRecord = {
+  id: string;
+  name: string;
+  slug: string;
+  createdAt: string;
 };

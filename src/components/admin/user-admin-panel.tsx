@@ -15,7 +15,7 @@ type User = {
   lastLoginAt: string | null;
 };
 
-const ROLES = ["Representative", "Line Manager", "Sales Director", "Admin"] as const;
+const ROLES = ["Representative", "Line Manager", "Sales Director", "Admin"] as const; // Super Admin is assigned at organization creation
 
 export function UserAdminPanel() {
   const [users, setUsers] = useState<User[]>([]);

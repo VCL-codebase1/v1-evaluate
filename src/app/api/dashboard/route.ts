@@ -10,6 +10,6 @@ export async function GET() {
 
   return NextResponse.json({
     user: session,
-    ...(await getDashboardSummary()),
+    ...(await getDashboardSummary(session.organizationId)),
   });
 }

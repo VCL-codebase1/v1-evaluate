@@ -25,8 +25,12 @@ const EMPTY_ESTIMATES: EstimateRecord[] = [];
 
 async function DashboardSession() {
   const session = await getSession();
-  const [summary, estimates] = await Promise.all([getDashboardSummary(), listEstimates()]);
-  return <DashboardView role={session?.role ?? "Representative"} summary={summary} estimates={estimates} />;
+  if (!session) return <DashboardView role="Representative" summary={EMPTY_SUMMARY} estimates={EMPTY_ESTIMATES} />;
+  const [summary, estimates] = await Promise.all([
+    getDashboardSummary(session.organizationId),
+    listEstimates(session.organizationId),
+  ]);
+  return <DashboardView role={session.role} summary={summary} estimates={estimates} />;
 }
 
 export default function DashboardPage() {

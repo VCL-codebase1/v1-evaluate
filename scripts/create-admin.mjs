@@ -24,7 +24,12 @@ function hashPassword(password, salt = randomBytes(16).toString("hex")) {
 function arg(name) {
   const idx = process.argv.indexOf(`--${name}`);
   if (idx !== -1 && process.argv[idx + 1]) return process.argv[idx + 1];
-  return process.env[name.toUpperCase()] || "";
+  return process.env[name.toUpperCase().replace(/-/g, "_")] || "";
+}
+
+function slugify(name) {
+  const base = name.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48);
+  return base || "organization";
 }
 
 loadEnv();
@@ -40,13 +45,15 @@ const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPA
 
 const email = (arg("email") || "").trim().toLowerCase();
 const name = (arg("name") || "Administrator").trim();
-const role = (arg("role") || "Admin").trim();
+const role = (arg("role") || "Super Admin").trim();
+const organizationIdArg = (arg("organization-id") || arg("organizationId") || "").trim();
+const organizationNameArg = (arg("organization-name") || arg("organizationName") || "").trim();
 let password = arg("password");
 const generated = !password;
 if (!password) password = randomBytes(18).toString("base64url");
 
 if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-  console.error("Usage: node scripts/create-admin.mjs --email admin@example.com [--name 'Admin'] [--password 'StrongPass123'] [--role Admin]");
+  console.error("Usage: node scripts/create-admin.mjs --email admin@example.com [--name 'Admin'] [--password 'StrongPass123'] [--role 'Super Admin'] [--organization-id org-xxx | --organization-name 'Acme']");
   process.exit(1);
 }
 
@@ -63,6 +70,7 @@ async function ensureProfileTableColumns() {
     create unique index if not exists users_auth_user_id_unique_idx on users(auth_user_id) where auth_user_id is not null;
     alter table if exists users alter column password_hash drop not null;
     alter table if exists users alter column password_salt drop not null;
+    alter table if exists users add column if not exists organization_id text;
   `).catch(() => {});
 }
 
@@ -71,10 +79,45 @@ async function findSupabaseUserByEmail(admin, targetEmail) {
   return data?.users?.find((u) => (u.email || "").toLowerCase() === targetEmail) || null;
 }
 
+async function resolveOrganization() {
+  if (organizationIdArg) {
+    const rows = await sql`select id, name from organizations where id = ${organizationIdArg} limit 1`;
+    if (!rows[0]) throw new Error(`Organization not found: ${organizationIdArg}`);
+    return { id: String(rows[0].id), name: String(rows[0].name) };
+  }
+  if (organizationNameArg) {
+    const id = `org-${randomBytes(10).toString("hex")}`;
+    const slug = `${slugify(organizationNameArg)}-${id.slice(-6)}`;
+    const rows = await sql`
+      insert into organizations(id, name, slug)
+      values (${id}, ${organizationNameArg}, ${slug})
+      returning id, name
+    `;
+    const org = { id: String(rows[0].id), name: String(rows[0].name) };
+    await sql`
+      insert into exchange_rates(organization_id, currency, rate) values
+        (${org.id}, 'NGN', 1),
+        (${org.id}, 'USD', 1500),
+        (${org.id}, 'EUR', 1620),
+        (${org.id}, 'GBP', 1900)
+      on conflict (organization_id, currency) do nothing
+    `.catch(() => {});
+    return org;
+  }
+  const rows = await sql`select id, name from organizations order by created_at asc limit 1`;
+  if (rows[0]) return { id: String(rows[0].id), name: String(rows[0].name) };
+  throw new Error("No organization found. Provide --organization-name to create one or run the signup flow.");
+}
+
 try {
   await ensureProfileTableColumns();
 
-  const existingRows = await sql`select id, auth_user_id from users where lower(email) = ${email} limit 1`;
+  const org = await resolveOrganization();
+  const existingRows = await sql`
+    select id, auth_user_id from users
+    where lower(email) = ${email} and organization_id = ${org.id}
+    limit 1
+  `;
   const existing = existingRows[0] || null;
 
   let authUserId = existing?.auth_user_id ? String(existing.auth_user_id) : null;
@@ -83,12 +126,15 @@ try {
       auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
     });
 
+    const userMeta = { name, organization_id: org.id, organization_name: org.name };
+    const appMeta = { role, organization_id: org.id };
+
     const { data: created, error: createError } = await admin.auth.admin.createUser({
       email,
       password,
       email_confirm: true,
-      user_metadata: { name },
-      app_metadata: { role },
+      user_metadata: userMeta,
+      app_metadata: appMeta,
     });
 
     if (createError) {
@@ -102,8 +148,8 @@ try {
         const { error: updErr } = await admin.auth.admin.updateUserById(authUserId, {
           password,
           email_confirm: true,
-          user_metadata: { name },
-          app_metadata: { role },
+          user_metadata: userMeta,
+          app_metadata: appMeta,
         });
         if (updErr) {
           console.error(`Failed to update existing Supabase auth user: ${updErr.message}`);
@@ -137,14 +183,14 @@ try {
         updated_at = now()
       where id = ${id}
     `;
-    console.log(JSON.stringify({ ok: true, id, email, name, role, authUserId, passwordGenerated: generated, updated: true }, null, 2));
+    console.log(JSON.stringify({ ok: true, id, email, name, role, organizationId: org.id, organizationName: org.name, authUserId, passwordGenerated: generated, updated: true }, null, 2));
   } else {
     const id = `usr-${randomBytes(12).toString("hex")}`;
     await sql`
-      insert into users(id, auth_user_id, email, name, role, password_hash, password_salt, is_active, must_change_password)
-      values (${id}, ${authUserId}::uuid, ${email}, ${name}, ${role}, ${passwordHash}, ${passwordSalt}, true, false)
+      insert into users(id, organization_id, auth_user_id, email, name, role, password_hash, password_salt, is_active, must_change_password)
+      values (${id}, ${org.id}, ${authUserId}::uuid, ${email}, ${name}, ${role}, ${passwordHash}, ${passwordSalt}, true, false)
     `;
-    console.log(JSON.stringify({ ok: true, id, email, name, role, authUserId, passwordGenerated: generated }, null, 2));
+    console.log(JSON.stringify({ ok: true, id, email, name, role, organizationId: org.id, organizationName: org.name, authUserId, passwordGenerated: generated }, null, 2));
   }
 
   if (generated) {

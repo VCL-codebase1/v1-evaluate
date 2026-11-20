@@ -5,11 +5,13 @@ export function Topbar({
   name,
   estimateId,
   version,
+  organizationName,
 }: {
   role: string;
   name?: string;
   estimateId: string;
   version: string;
+  organizationName?: string;
 }) {
   const manager = role === "Line Manager";
   return (
@@ -17,6 +19,12 @@ export function Topbar({
       <p className="session-pill">
         <span>Signed in as</span>
         <strong>{manager ? name || "Manager 1" : role}</strong>
+        {organizationName ? (
+          <>
+            <span aria-hidden>·</span>
+            <strong>{organizationName}</strong>
+          </>
+        ) : null}
         <span aria-hidden>·</span>
         <strong>{manager ? role : estimateId}</strong>
         {manager ? null : (

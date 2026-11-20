@@ -14,7 +14,7 @@ const PROTECTED_PREFIXES = [
   "/admin",
 ];
 
-const AUTH_PATHS = ["/login", "/forgot-password", "/reset-password"];
+const AUTH_PATHS = ["/login", "/signup", "/forgot-password", "/reset-password"];
 
 function hasSupabaseAuthCookie(request: NextRequest) {
   return request.cookies

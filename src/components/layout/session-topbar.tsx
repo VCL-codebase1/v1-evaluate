@@ -11,6 +11,7 @@ export async function SessionTopbar() {
       name={session.name}
       estimateId={session.estimateId}
       version={session.version}
+      organizationName={session.organizationName}
     />
   );
 }

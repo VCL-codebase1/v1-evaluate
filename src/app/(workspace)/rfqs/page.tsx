@@ -25,8 +25,9 @@ function RfqsView({ estimates }: { estimates: EstimateRecord[] }) {
 }
 
 async function RfqsSession() {
-  await getSession();
-  return <RfqsView estimates={await listEstimates()} />;
+  const session = await getSession();
+  if (!session) return <RfqsView estimates={[]} />;
+  return <RfqsView estimates={await listEstimates(session.organizationId)} />;
 }
 
 export default function RfqsPage() {

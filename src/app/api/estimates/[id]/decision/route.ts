@@ -19,8 +19,11 @@ export async function POST(request: Request, context: Context) {
     return NextResponse.json({ error: "Choose approved or returned." }, { status: 400 });
   }
 
-  const result = await decideSheet(id, body.decision, auth.session.role);
-  if ("error" in result) return NextResponse.json({ error: result.error }, { status: 409 });
+  const result = await decideSheet(id, auth.session.organizationId, body.decision, auth.session.role);
+  if ("error" in result) {
+    const status = result.error === "Estimate not found." ? 404 : 409;
+    return NextResponse.json({ error: result.error }, { status });
+  }
   log.info("estimate.decision", { estimateId: id, decision: body.decision, by: auth.session.email, role: auth.session.role });
   return NextResponse.json(result.sheet);
 }

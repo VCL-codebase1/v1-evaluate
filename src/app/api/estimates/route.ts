@@ -11,7 +11,7 @@ export async function GET() {
     return NextResponse.json({ error: "Sign in required." }, { status: 401 });
   }
 
-  return NextResponse.json({ estimates: await listEstimates() });
+  return NextResponse.json({ estimates: await listEstimates(session.organizationId) });
 }
 
 export async function POST(request: Request) {
@@ -52,6 +52,7 @@ export async function POST(request: Request) {
     : [];
   const estimate = await createEstimate({
     title,
+    organizationId: session.organizationId,
     clientName,
     tenderNumber: body?.tenderNumber,
     contact: body?.contact,

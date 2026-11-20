@@ -103,6 +103,9 @@ export function LoginForm() {
         {pending ? "Signing in" : "Sign in"}
       </Button>
       <p className="text-footer-note">
+        New here? <Link href="/signup" className="text-link">Create an organization</Link>
+      </p>
+      <p className="text-footer-note">
         For authorised company users only · Secure, role-based
         <br />
         access

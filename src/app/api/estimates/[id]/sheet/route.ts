@@ -10,7 +10,9 @@ export async function GET(_request: Request, context: Context) {
   if (!auth.session) return auth.response;
 
   const { id } = await context.params;
-  return NextResponse.json(await sheetResponse(id, auth.session.version));
+  const sheet = await sheetResponse(id, auth.session.organizationId, auth.session.version);
+  if (!sheet) return NextResponse.json({ error: "Estimate not found." }, { status: 404 });
+  return NextResponse.json(sheet);
 }
 
 export async function PUT(request: Request, context: Context) {
@@ -23,7 +25,10 @@ export async function PUT(request: Request, context: Context) {
     return NextResponse.json({ error: "Send the sheet lines." }, { status: 400 });
   }
 
-  const result = await saveSheet(id, body.lines, auth.session.version, auth.session.role);
-  if ("error" in result) return NextResponse.json({ error: result.error }, { status: 409 });
+  const result = await saveSheet(id, auth.session.organizationId, body.lines, auth.session.version, auth.session.role);
+  if ("error" in result) {
+    const status = result.error === "Estimate not found." ? 404 : 409;
+    return NextResponse.json({ error: result.error }, { status });
+  }
   return NextResponse.json(result.sheet);
 }

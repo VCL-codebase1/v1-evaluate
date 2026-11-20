@@ -88,14 +88,14 @@ async function nextCounter(name: "estimate" | "audit") {
   return Number(rows[0]?.value ?? 1);
 }
 
-export async function recordAudit(event: Omit<AuditEvent, "id" | "at">) {
+export async function recordAudit(event: Omit<AuditEvent, "id" | "at"> & { organizationId: string }) {
   await ensureDb();
   const db = sql();
   const seq = await nextCounter("audit");
   const id = `AUD-${String(seq).padStart(3, "0")}`;
   const rows = await db`
-    insert into audit_events(event_ref, actor, role, action, estimate_id, detail)
-    values (${id}, ${event.actor}, ${(event as { role?: string }).role ?? null}, ${event.action}, ${event.estimateId}, ${event.detail})
+    insert into audit_events(event_ref, organization_id, actor, role, action, estimate_id, detail)
+    values (${id}, ${event.organizationId}, ${event.actor}, ${(event as { role?: string }).role ?? null}, ${event.action}, ${event.estimateId}, ${event.detail})
     returning event_ref, at, actor, role, action, estimate_id, detail
   `;
   const row = rows[0];
@@ -109,20 +109,21 @@ export async function recordAudit(event: Omit<AuditEvent, "id" | "at">) {
   } as AuditEvent;
 }
 
-export async function listEstimates() {
+export async function listEstimates(organizationId: string) {
   await ensureDb();
-  const rows = await sql()`select * from estimates order by created_at desc`;
+  const rows = await sql()`select * from estimates where organization_id = ${organizationId} order by created_at desc`;
   return rows.map((r) => mapEstimate(r as Record<string, unknown>));
 }
 
-export async function getEstimate(id: string) {
+export async function getEstimate(id: string, organizationId: string) {
   await ensureDb();
-  const rows = await sql()`select * from estimates where id = ${id} limit 1`;
+  const rows = await sql()`select * from estimates where id = ${id} and organization_id = ${organizationId} limit 1`;
   return rows[0] ? mapEstimate(rows[0] as Record<string, unknown>) : null;
 }
 
 export async function createEstimate(input: {
   title: string;
+  organizationId: string;
   clientName?: string;
   tenderNumber?: string;
   contact?: string;
@@ -144,11 +145,11 @@ export async function createEstimate(input: {
   const attachments = input.attachments?.map((n) => n.trim()).filter(Boolean) ?? [];
   const rows = await sql()`
     insert into estimates(
-      id, title, client_name, tender_number, contact, department, date_received, deadline,
+      id, organization_id, title, client_name, tender_number, contact, department, date_received, deadline,
       account_manager, originator, description, remarks, attachments, mode, status,
       review_stage, workflow_step, version
     ) values (
-      ${id}, ${text(input.title)}, ${text(input.clientName)}, ${text(input.tenderNumber)},
+      ${id}, ${input.organizationId}, ${text(input.title)}, ${text(input.clientName)}, ${text(input.tenderNumber)},
       ${text(input.contact)}, ${text(input.department)}, ${text(input.dateReceived)}, ${text(input.deadline)},
       ${text(input.accountManager)}, ${text(input.originator)}, ${text(input.description)}, ${text(input.remarks)},
       ${sql().json(attachments)}::jsonb, ${text(input.mode) || "Air freight"}, ${input.status ?? "pending"},
@@ -156,6 +157,7 @@ export async function createEstimate(input: {
     ) returning *
   `;
   await recordAudit({
+    organizationId: input.organizationId,
     actor: text(input.originator) || "Representative",
     action: "estimate.created",
     estimateId: id,
@@ -166,10 +168,11 @@ export async function createEstimate(input: {
 
 export async function updateEstimate(
   id: string,
+  organizationId: string,
   patch: Partial<Pick<EstimateRecord, "title" | "clientName" | "status" | "reviewStage" | "totalNgn" | "remarks">>,
 ) {
   await ensureDb();
-  const current = await getEstimate(id);
+  const current = await getEstimate(id, organizationId);
   if (!current) return null;
   const title = patch.title != null ? text(patch.title) : current.title;
   const clientName = patch.clientName != null ? text(patch.clientName) : current.clientName;
@@ -182,27 +185,30 @@ export async function updateEstimate(
       title = ${title}, client_name = ${clientName}, remarks = ${remarks},
       status = ${status}, review_stage = ${reviewStage}, total_ngn = ${totalNgn},
       updated_at = now()
-    where id = ${id}
+    where id = ${id} and organization_id = ${organizationId}
     returning *
   `;
   return rows[0] ? mapEstimate(rows[0] as Record<string, unknown>) : null;
 }
 
-export async function deleteEstimate(id: string) {
+export async function deleteEstimate(id: string, organizationId: string) {
   await ensureDb();
-  const rows = await sql()`delete from estimates where id = ${id} returning id`;
+  const rows = await sql()`delete from estimates where id = ${id} and organization_id = ${organizationId} returning id`;
   return rows.length > 0;
 }
 
-export async function getSheet(id: string, version = "v1") {
+export async function getSheet(id: string, organizationId: string, version = "v1") {
   await ensureDb();
+  // Ensure estimate belongs to org
+  const est = await getEstimate(id, organizationId);
+  if (!est) return null;
   const rows = await sql()`select * from estimate_sheets where estimate_id = ${id} limit 1`;
   return rows[0] ? mapSheet(rows[0] as Record<string, unknown>) : emptySheet(id, version);
 }
 
-export async function getExchangeRates(): Promise<ExchangeRateTable> {
+export async function getExchangeRates(organizationId: string): Promise<ExchangeRateTable> {
   await ensureDb();
-  const rows = await sql()`select currency, rate from exchange_rates`;
+  const rows = await sql()`select currency, rate from exchange_rates where organization_id = ${organizationId}`;
   const rates: ExchangeRateTable = { ...DEFAULT_RATES };
   for (const row of rows) {
     const currency = String(row.currency) as SheetCurrency;
@@ -212,9 +218,10 @@ export async function getExchangeRates(): Promise<ExchangeRateTable> {
   return rates;
 }
 
-export async function sheetResponse(id: string, version = "v1") {
-  const sheet = await getSheet(id, version);
-  const rates = await getExchangeRates();
+export async function sheetResponse(id: string, organizationId: string, version = "v1") {
+  const sheet = await getSheet(id, organizationId, version);
+  if (!sheet) return null;
+  const rates = await getExchangeRates(organizationId);
   return { ...sheet, rates, summary: summarizeSheet(sheet.lines, rates) };
 }
 
@@ -252,17 +259,24 @@ function cleanLine(line: Partial<SheetLine>, index: number): SheetLine | null {
   };
 }
 
-async function syncEstimate(id: string, totalNgn: number, stage: ReviewStage) {
+async function syncEstimate(id: string, organizationId: string, totalNgn: number, stage: ReviewStage) {
   const status = stage === "approved" ? "approved" : stage === "returned" ? "rejected" : "pending";
   await sql()`
     update estimates set total_ngn = ${totalNgn}, review_stage = ${stage}, status = ${status}, updated_at = now()
-    where id = ${id}
+    where id = ${id} and organization_id = ${organizationId}
   `;
 }
 
-export async function saveSheet(id: string, lines: Partial<SheetLine>[], version = "v1", actor = "Representative") {
+export async function saveSheet(
+  id: string,
+  organizationId: string,
+  lines: Partial<SheetLine>[],
+  version = "v1",
+  actor = "Representative",
+) {
   await ensureDb();
-  const current = await getSheet(id, version);
+  const current = await getSheet(id, organizationId, version);
+  if (!current) return { error: "Estimate not found." as const };
   if (current.reviewStage === "in_review" || current.reviewStage === "approved") {
     return { error: "This estimate is locked while it is in review." as const };
   }
@@ -285,13 +299,14 @@ export async function saveSheet(id: string, lines: Partial<SheetLine>[], version
       updated_at = now()
   `;
 
-  const rates = await getExchangeRates();
+  const rates = await getExchangeRates(organizationId);
   const summary = summarizeSheet(nextLines, rates);
-  await syncEstimate(id, summary.grandTotalNgn, nextStage);
+  await syncEstimate(id, organizationId, summary.grandTotalNgn, nextStage);
 
   const added = nextLines.filter((line) => line.item.trim() && !previousIds.has(line.id));
   if (added.length === 0) {
     await recordAudit({
+      organizationId,
       actor,
       action: "sheet.saved",
       estimateId: id,
@@ -299,16 +314,19 @@ export async function saveSheet(id: string, lines: Partial<SheetLine>[], version
     });
   } else {
     for (let i = 0; i < added.length; i += 1) {
-      await recordAudit({ actor, action: "item.added", estimateId: id, detail: "Item added" });
+      await recordAudit({ organizationId, actor, action: "item.added", estimateId: id, detail: "Item added" });
     }
   }
 
-  return { sheet: await sheetResponse(id, version) };
+  const sheet = await sheetResponse(id, organizationId, version);
+  if (!sheet) return { error: "Estimate not found." as const };
+  return { sheet };
 }
 
-export async function submitSheet(id: string, actor: string, version = "v1") {
+export async function submitSheet(id: string, organizationId: string, actor: string, version = "v1") {
   await ensureDb();
-  const current = await getSheet(id, version);
+  const current = await getSheet(id, organizationId, version);
+  if (!current) return { error: "Estimate not found." as const };
   const named = current.lines.filter((line) => line.item.trim());
   if (named.length === 0) {
     return { error: "Add an item before submitting for review." as const };
@@ -328,20 +346,32 @@ export async function submitSheet(id: string, actor: string, version = "v1") {
       submitted_by = excluded.submitted_by,
       updated_at = now()
   `;
-  const rates = await getExchangeRates();
+  const rates = await getExchangeRates(organizationId);
   const summary = summarizeSheet(current.lines, rates);
-  await syncEstimate(id, summary.grandTotalNgn, "in_review");
+  await syncEstimate(id, organizationId, summary.grandTotalNgn, "in_review");
   await recordAudit({
+    organizationId,
     actor,
     action: "sheet.submitted",
     estimateId: id,
     detail: `${current.version || version} sent for line manager review`,
   });
-  return { sheet: await sheetResponse(id, version) };
+  const sheet = await sheetResponse(id, organizationId, version);
+  if (!sheet) return { error: "Estimate not found." as const };
+  return { sheet };
 }
 
-export async function decideSheet(id: string, decision: "approved" | "returned", actor: string) {
+export async function decideSheet(
+  id: string,
+  organizationId: string,
+  decision: "approved" | "returned",
+  actor: string,
+) {
   await ensureDb();
+  // Verify org ownership
+  const owned = await getEstimate(id, organizationId);
+  if (!owned) return { error: "Estimate not found." as const };
+
   const currentRows = await sql()`select * from estimate_sheets where estimate_id = ${id} limit 1`;
   const current = currentRows[0] ? mapSheet(currentRows[0] as Record<string, unknown>) : null;
   if (!current || current.reviewStage !== "in_review") {
@@ -351,21 +381,24 @@ export async function decideSheet(id: string, decision: "approved" | "returned",
   await sql()`
     update estimate_sheets set review_stage = ${nextStage}, updated_at = now() where estimate_id = ${id}
   `;
-  const rates = await getExchangeRates();
+  const rates = await getExchangeRates(organizationId);
   const summary = summarizeSheet(current.lines, rates);
-  await syncEstimate(id, summary.grandTotalNgn, nextStage);
+  await syncEstimate(id, organizationId, summary.grandTotalNgn, nextStage);
   await recordAudit({
+    organizationId,
     actor,
     action: decision === "approved" ? "sheet.approved" : "sheet.returned",
     estimateId: id,
     detail: current.version,
   });
-  return { sheet: await sheetResponse(id) };
+  const sheet = await sheetResponse(id, organizationId);
+  if (!sheet) return { error: "Estimate not found." as const };
+  return { sheet };
 }
 
-export async function saveExchangeRates(patch: Partial<ExchangeRateTable>) {
+export async function saveExchangeRates(organizationId: string, patch: Partial<ExchangeRateTable>) {
   await ensureDb();
-  const rates = await getExchangeRates();
+  const rates = await getExchangeRates(organizationId);
   (Object.keys(DEFAULT_RATES) as SheetCurrency[]).forEach((currency) => {
     const next = patch[currency];
     if (typeof next === "number" && Number.isFinite(next) && next > 0) rates[currency] = next;
@@ -373,15 +406,15 @@ export async function saveExchangeRates(patch: Partial<ExchangeRateTable>) {
   rates.NGN = 1;
   for (const [currency, rate] of Object.entries(rates)) {
     await sql()`
-      insert into exchange_rates(currency, rate) values (${currency}, ${rate})
-      on conflict (currency) do update set rate = excluded.rate
+      insert into exchange_rates(organization_id, currency, rate) values (${organizationId}, ${currency}, ${rate})
+      on conflict (organization_id, currency) do update set rate = excluded.rate
     `;
   }
   return { ...rates };
 }
 
-export async function listClients() {
-  const estimates = await listEstimates();
+export async function listClients(organizationId: string) {
+  const estimates = await listEstimates(organizationId);
   const clients = new Map<string, { name: string; estimates: number }>();
   for (const estimate of estimates) {
     const name = estimate.clientName.trim();
@@ -393,9 +426,9 @@ export async function listClients() {
   return [...clients.values()];
 }
 
-export async function listAudit() {
+export async function listAudit(organizationId: string) {
   await ensureDb();
-  const rows = await sql()`select event_ref, at, actor, role, action, estimate_id, detail from audit_events order by at desc limit 500`;
+  const rows = await sql()`select event_ref, at, actor, role, action, estimate_id, detail from audit_events where organization_id = ${organizationId} order by at desc limit 500`;
   return rows.map((row) => ({
     id: String(row.event_ref),
     at: toIso(row.at) ?? new Date().toISOString(),
@@ -406,8 +439,8 @@ export async function listAudit() {
   })) as AuditEvent[];
 }
 
-export async function listReports() {
-  const estimates = await listEstimates();
+export async function listReports(organizationId: string) {
+  const estimates = await listEstimates(organizationId);
   return estimates
     .filter((estimate) => estimate.status === "approved" || estimate.reviewStage === "approved")
     .map((estimate) => ({
@@ -419,8 +452,8 @@ export async function listReports() {
     }));
 }
 
-export async function getDashboardSummary(): Promise<DashboardSummary> {
-  const estimates = await listEstimates();
+export async function getDashboardSummary(organizationId: string): Promise<DashboardSummary> {
+  const estimates = await listEstimates(organizationId);
   const count = (status: EstimateStatus) => estimates.filter((estimate) => estimate.status === status).length;
 
   return {

@@ -24,11 +24,16 @@ export async function PATCH(request: Request, context: Context) {
   } | null;
 
   const existing = await findUserById(id);
-  if (!existing) return NextResponse.json({ error: "User not found." }, { status: 404 });
+  if (!existing || existing.organizationId !== session.organizationId) {
+    return NextResponse.json({ error: "User not found." }, { status: 404 });
+  }
 
   const patch: Parameters<typeof updateUserAdmin>[1] = {};
   if (typeof body?.role === "string") {
     if (!isRole(body.role)) return NextResponse.json({ error: "Select a valid role." }, { status: 400 });
+    if (body.role === "Super Admin" && existing.role !== "Super Admin") {
+      return NextResponse.json({ error: "Super Admin role cannot be assigned from this action." }, { status: 400 });
+    }
     patch.role = body.role;
   }
   if (typeof body?.isActive === "boolean") patch.isActive = body.isActive;
@@ -46,8 +51,16 @@ export async function PATCH(request: Request, context: Context) {
     try {
       const admin = createSupabaseAdminClient();
       const supaPatch: Record<string, unknown> = {};
-      if (patch.name) supaPatch.user_metadata = { name: patch.name };
-      if (patch.role) supaPatch.app_metadata = { role: patch.role };
+      if (patch.name || typeof body?.name === "string") {
+        supaPatch.user_metadata = {
+          name: patch.name ?? existing.name,
+          organization_id: existing.organizationId,
+          organization_name: session.organizationName,
+        };
+      }
+      if (patch.role) {
+        supaPatch.app_metadata = { role: patch.role, organization_id: existing.organizationId };
+      }
       if (typeof patch.isActive === "boolean") supaPatch.ban_duration = patch.isActive ? "none" : "876000h";
       if (body?.resetPassword) {
         supaPatch.password = body.resetPassword;
@@ -65,8 +78,8 @@ export async function PATCH(request: Request, context: Context) {
     }
   }
 
-  const user = await updateUserAdmin(id, patch);
+  const user = await updateUserAdmin(id, patch, session.organizationId);
   if (!user) return NextResponse.json({ error: "User not found." }, { status: 404 });
-  log.info("admin.user.updated", { by: session.email, userId: user.id, role: user.role, active: user.isActive, auth: "supabase" });
+  log.info("admin.user.updated", { by: session.email, userId: user.id, role: user.role, active: user.isActive, auth: "supabase", organizationId: session.organizationId });
   return NextResponse.json({ user });
 }

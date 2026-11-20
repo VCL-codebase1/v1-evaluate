@@ -36,13 +36,24 @@ export function decodeSession(value: string | undefined | null): SessionUser | n
     if (process.env.NODE_ENV === "production") return null;
     try {
       const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as Partial<SessionUser>;
-      if (!parsed.email || !parsed.role || !parsed.estimateId || !parsed.version) return null;
+      if (
+        !parsed.email ||
+        !parsed.role ||
+        !parsed.estimateId ||
+        !parsed.version ||
+        !parsed.organizationId ||
+        !parsed.organizationName
+      ) {
+        return null;
+      }
       return {
         email: parsed.email,
         role: parsed.role,
         name: parsed.name || parsed.role,
         estimateId: parsed.estimateId,
         version: parsed.version,
+        organizationId: parsed.organizationId,
+        organizationName: parsed.organizationName,
       };
     } catch {
       return null;
@@ -58,7 +69,15 @@ export function decodeSession(value: string | undefined | null): SessionUser | n
 
   try {
     const payload = JSON.parse(Buffer.from(body, "base64url").toString("utf8")) as Partial<SessionPayload>;
-    if (!payload.email || !payload.role || !payload.estimateId || !payload.version || !payload.exp) {
+    if (
+      !payload.email ||
+      !payload.role ||
+      !payload.estimateId ||
+      !payload.version ||
+      !payload.exp ||
+      !payload.organizationId ||
+      !payload.organizationName
+    ) {
       return null;
     }
     if (payload.exp < Math.floor(Date.now() / 1000)) return null;
@@ -68,6 +87,8 @@ export function decodeSession(value: string | undefined | null): SessionUser | n
       name: payload.name || payload.role,
       estimateId: payload.estimateId,
       version: payload.version,
+      organizationId: payload.organizationId,
+      organizationName: payload.organizationName,
     };
   } catch {
     return null;

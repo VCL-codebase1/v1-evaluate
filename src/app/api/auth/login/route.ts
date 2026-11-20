@@ -5,6 +5,7 @@ import { validateLogin } from "@/lib/validators";
 import { log, requestMeta } from "@/lib/observability/logger";
 import { checkThrottle, clearThrottle, registerFailure, throttleSubject } from "@/lib/auth/throttle";
 import { getUserProfileByAuthId, isUserLocked, markLoginSuccess } from "@/lib/auth/users";
+import { getOrganizationById } from "@/lib/auth/organizations";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const GENERIC_AUTH_ERROR = "Email or password is incorrect.";
@@ -51,8 +52,6 @@ export async function POST(request: Request) {
 
   if (error || !data.user) {
     await Promise.all([registerFailure(ipCfg), registerFailure(emailCfg)]);
-    // Best-effort local lock tracking for known app users (by email/profile linkage).
-    // We do not enumerate account existence in responses.
     log.warn("auth.login.failed", { email, ip: meta.ip, reason: "supabase_auth" });
     return NextResponse.json({ error: GENERIC_AUTH_ERROR, field: "password" }, { status: 401 });
   }
@@ -62,7 +61,10 @@ export async function POST(request: Request) {
     await supabase.auth.signOut();
     await Promise.all([registerFailure(ipCfg), registerFailure(emailCfg)]);
     log.warn("auth.login.failed", { email, ip: meta.ip, reason: "no_profile" });
-    return NextResponse.json({ error: GENERIC_AUTH_ERROR, field: "password" }, { status: 401 });
+    return NextResponse.json(
+      { error: "Your account is not linked to an organization workspace. Contact your administrator." , field: "email" },
+      { status: 403 },
+    );
   }
 
   if (!profile.isActive) {
@@ -80,22 +82,25 @@ export async function POST(request: Request) {
 
   let estimateId = "EST-2026-001";
   try {
-    const estimates = await listEstimates();
+    const estimates = await listEstimates(profile.organizationId);
     estimateId = estimates[0]?.id ?? estimateId;
   } catch {
     // keep fallback
   }
 
+  const org = await getOrganizationById(profile.organizationId).catch(() => null);
   const session: SessionUser = {
     email: profile.email,
     role: profile.role,
     name: profile.name,
     estimateId,
     version: "v1",
+    organizationId: profile.organizationId,
+    organizationName: org?.name ?? "Organization",
   };
 
   await Promise.all([markLoginSuccess(profile.id), clearThrottle("login:ip", ipSubject), clearThrottle("login:email", emailSubject)]);
-  log.info("auth.login.success", { email: profile.email, role: profile.role, ip: meta.ip, auth: "supabase" });
+  log.info("auth.login.success", { email: profile.email, role: profile.role, ip: meta.ip, auth: "supabase", organizationId: profile.organizationId });
 
   return NextResponse.json({ user: session, mustChangePassword: profile.mustChangePassword });
 }
