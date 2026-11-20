@@ -2262,3 +2262,113 @@ body.nav-open {
 .history-list strong {
   font-weight: 700;
 }
+
+.manager-note {
+  margin: 0;
+  color: #767676;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.manager-scroll-wrap {
+  position: relative;
+}
+
+.manager-scroll {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.manager-scroll::-webkit-scrollbar {
+  display: none;
+  height: 0;
+}
+
+.manager-table {
+  min-width: 148rem;
+}
+
+.manager-table th,
+.manager-table td {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.manager-table .sheet-input,
+.manager-table .sheet-select {
+  min-width: 5.5rem;
+  height: 2rem;
+  font-size: 12px;
+}
+
+.sticky-col {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: #fff;
+}
+
+.sticky-second {
+  left: 2.25rem;
+  min-width: 10rem;
+}
+
+.swipe-hint {
+  position: absolute;
+  top: 2.6rem;
+  right: 0.75rem;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: 62.4375rem;
+  background: #0a162e;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  pointer-events: none;
+  animation: swipe-nudge 1.35s ease-in-out infinite;
+}
+
+.swipe-hint-hand {
+  display: inline-block;
+  animation: swipe-nudge 1.35s ease-in-out infinite;
+}
+
+@keyframes swipe-nudge {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(-16px);
+  }
+}
+
+.manager-na {
+  color: #98a2b3;
+}
+
+.manager-sheet-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+@media (max-width: 48rem) {
+  .manager-table th,
+  .manager-table td {
+    padding-inline: 0.4rem;
+  }
+
+  .sticky-second {
+    left: 1.6rem;
+  }
+}

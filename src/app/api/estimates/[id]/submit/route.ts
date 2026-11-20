@@ -9,7 +9,7 @@ export async function POST(_request: Request, context: Context) {
   if (!auth.session) return auth.response;
 
   const { id } = await context.params;
-  const result = submitSheet(id, auth.session.role, auth.session.version);
+  const result = await submitSheet(id, auth.session.role, auth.session.version);
   if ("error" in result) return NextResponse.json({ error: result.error }, { status: 400 });
   return NextResponse.json(result.sheet);
 }

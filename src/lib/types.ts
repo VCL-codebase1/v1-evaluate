@@ -38,6 +38,8 @@ export type EstimateRecord = {
   createdAt: string;
 };
 
+export type SourcingType = "Local" | "Foreign";
+
 export type SheetLine = {
   id: string;
   item: string;
@@ -47,6 +49,17 @@ export type SheetLine = {
   base: string;
   freight: string;
   msc: string;
+  itemNumber?: string;
+  manufacturer?: string;
+  model?: string;
+  partNumber?: string;
+  specification?: string;
+  unit?: string;
+  supplier?: string;
+  sourcing?: SourcingType;
+  delivery?: string;
+  warehouse?: string;
+  markup?: string;
 };
 
 export type SheetRecord = {

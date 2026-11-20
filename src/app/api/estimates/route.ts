@@ -11,7 +11,7 @@ export async function GET() {
     return NextResponse.json({ error: "Sign in required." }, { status: 401 });
   }
 
-  return NextResponse.json({ estimates: listEstimates() });
+  return NextResponse.json({ estimates: await listEstimates() });
 }
 
 export async function POST(request: Request) {
@@ -50,7 +50,7 @@ export async function POST(request: Request) {
   const attachments = Array.isArray(body?.attachments)
     ? body.attachments.filter((name): name is string => typeof name === "string")
     : [];
-  const estimate = createEstimate({
+  const estimate = await createEstimate({
     title,
     clientName,
     tenderNumber: body?.tenderNumber,

@@ -162,7 +162,7 @@ function cleanLine(line: Partial<SheetLine>, index: number): SheetLine | null {
   const base = text(line.base);
   const freight = text(line.freight);
   const msc = text(line.msc);
-  if (!item && !qty && !base && !freight && !msc) return null;
+  if (!item && !qty && !base && !freight && !msc && !text(line.itemNumber) && !text(line.manufacturer)) return null;
   return {
     id: text(line.id) || `line-${index + 1}`,
     item,
@@ -172,6 +172,17 @@ function cleanLine(line: Partial<SheetLine>, index: number): SheetLine | null {
     base,
     freight,
     msc,
+    itemNumber: text(line.itemNumber),
+    manufacturer: text(line.manufacturer),
+    model: text(line.model),
+    partNumber: text(line.partNumber),
+    specification: text(line.specification),
+    unit: text(line.unit),
+    supplier: text(line.supplier),
+    sourcing: line.sourcing === "Foreign" ? "Foreign" : line.sourcing === "Local" ? "Local" : undefined,
+    delivery: text(line.delivery),
+    warehouse: text(line.warehouse),
+    markup: text(line.markup),
   };
 }
 

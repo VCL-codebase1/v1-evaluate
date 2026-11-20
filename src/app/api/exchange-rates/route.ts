@@ -6,7 +6,7 @@ import type { ExchangeRateTable } from "@/lib/types";
 export async function GET() {
   const auth = await requireSession();
   if (!auth.session) return auth.response;
-  return NextResponse.json({ rates: getExchangeRates() });
+  return NextResponse.json({ rates: await getExchangeRates() });
 }
 
 export async function PUT(request: Request) {
@@ -14,6 +14,6 @@ export async function PUT(request: Request) {
   if (!auth.session) return auth.response;
 
   const body = (await request.json().catch(() => null)) as { rates?: Partial<ExchangeRateTable> } | null;
-  const rates = saveExchangeRates(body?.rates ?? {});
+  const rates = await saveExchangeRates(body?.rates ?? {});
   return NextResponse.json({ rates });
 }

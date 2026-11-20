@@ -386,6 +386,35 @@ export function listReports() {
     }));
 }
 
+export function exportBackend() {
+  const current = state();
+  return {
+    users: current.users,
+    estimates: current.estimates,
+    sheets: current.sheets,
+    rates: current.rates,
+    audit: current.audit,
+    refreshTokens: [...current.refreshTokens.entries()],
+  };
+}
+
+export function replaceBackend(data: {
+  users: ApiUser[];
+  estimates: ApiEstimate[];
+  sheets: Record<string, ApiSheet>;
+  rates: ExchangeRateTable;
+  audit: ApiAudit[];
+  refreshTokens: [string, { userId: string; exp: number }][];
+}) {
+  const current = state();
+  current.users = data.users;
+  current.estimates = data.estimates;
+  current.sheets = data.sheets;
+  current.rates = data.rates;
+  current.audit = data.audit;
+  current.refreshTokens = new Map(data.refreshTokens);
+}
+
 export function dashboard() {
   const estimates = state().estimates;
   return {

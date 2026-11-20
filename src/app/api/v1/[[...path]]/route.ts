@@ -24,6 +24,7 @@ import {
   type ApiUser,
 } from "@/lib/backend/store";
 import { openApiDocument } from "@/lib/backend/openapi";
+import { flushApi, hydrateApi, postgresEnabled } from "@/lib/db/postgres";
 import { signJwt, verifyJwt } from "@/lib/jwt";
 import type { ExchangeRateTable, SheetLine } from "@/lib/types";
 
@@ -61,6 +62,15 @@ async function readJson(request: Request) {
 }
 
 async function handle(request: Request, context: Context) {
+  if (postgresEnabled()) await hydrateApi();
+  try {
+    return await dispatch(request, context);
+  } finally {
+    if (postgresEnabled()) await flushApi();
+  }
+}
+
+async function dispatch(request: Request, context: Context) {
   const { path = [] } = await context.params;
   const key = path.join("/");
   const method = request.method;

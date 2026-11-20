@@ -26,7 +26,7 @@ function RfqsView({ estimates }: { estimates: EstimateRecord[] }) {
 
 async function RfqsSession() {
   await getSession();
-  return <RfqsView estimates={listEstimates()} />;
+  return <RfqsView estimates={await listEstimates()} />;
 }
 
 export default function RfqsPage() {
