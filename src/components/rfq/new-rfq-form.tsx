@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Button, ButtonLink } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
@@ -71,11 +71,6 @@ export function NewRfqForm({ originator }: { originator: string }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [form, setForm] = useState<FormState>({ ...EMPTY, originator });
   const [attachments, setAttachments] = useState<string[]>([]);
-
-  useEffect(() => {
-    if (!originator) return;
-    setForm((current) => (current.originator ? current : { ...current, originator }));
-  }, [originator]);
   const [errors, setErrors] = useState<Partial<Record<FieldName, string>>>({});
   const [formError, setFormError] = useState("");
   const [pending, setPending] = useState(false);

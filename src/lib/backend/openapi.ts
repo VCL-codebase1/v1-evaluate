@@ -4,7 +4,7 @@ export const openApiDocument = {
     title: "V11 Estimate API",
     version: "1.1.0",
     description:
-      "V11 Estimate API, version 1.1.0. Authenticate with POST /api/v1/auth/login. Seeded users use password Estimate123!: rep1@v11.estimate (Representative), manager@v11.estimate (Line Manager), director@v11.estimate (Sales Director). Send the access token as Authorization: Bearer. When DATABASE_URL is set, workspace data and this API are stored in PostgreSQL (workspace_state and api_state). Sheet lines accept the manager estimation fields: itemNumber, manufacturer, model, partNumber, specification, unit, supplier, sourcing (Local or Foreign), delivery, warehouse, and markup. Foreign charges are not applied to locally sourced items.",
+      "Bearer-token API for estimate workflows, version 1.1.0. Authenticate with POST /api/v1/auth/login using provisioned user credentials and send the access token as Authorization: Bearer <token>. This API is separate from the web workspace. Sheet lines may include the manager estimation fields itemNumber, manufacturer, model, partNumber, specification, unit, supplier, sourcing (Local or Foreign), delivery, warehouse, and markup. Foreign sourcing charges are not applied to locally sourced items.",
   },
   servers: [{ url: "/" }],
   tags: [

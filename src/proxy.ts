@@ -11,6 +11,7 @@ const PROTECTED_PREFIXES = [
   "/clients",
   "/exchange-rates",
   "/audit",
+  "/admin",
 ];
 
 export function proxy(request: NextRequest) {
@@ -27,7 +28,7 @@ export function proxy(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  if ((pathname === "/login" || pathname === "/forgot-password") && hasSession) {
+  if ((pathname === "/login" || pathname === "/forgot-password" || pathname === "/reset-password") && hasSession) {
     const url = request.nextUrl.clone();
     url.pathname = "/dashboard";
     url.search = "";

@@ -1,17 +1,18 @@
-import { randomBytes, scryptSync, timingSafeEqual } from "crypto";
 import { DEFAULT_RATES, summarizeSheet } from "@/lib/estimation";
+import { ensureDb } from "@/lib/db/schema";
+import { sql } from "@/lib/db/client";
+import {
+  findUserByEmail as dbFindUserByEmail,
+  findUserById as dbFindUserById,
+  verifyUserPassword,
+  toPublicUser,
+  type DbUser,
+} from "@/lib/auth/users";
 import type { ExchangeRateTable, ReviewStage, SheetCurrency, SheetLine, SourceMode } from "@/lib/types";
 
-export type ApiRole = "Representative" | "Line Manager" | "Sales Director";
+export type ApiRole = "Representative" | "Line Manager" | "Sales Director" | "Admin";
 
-export type ApiUser = {
-  id: string;
-  email: string;
-  name: string;
-  role: ApiRole;
-  passwordHash: string;
-  passwordSalt: string;
-};
+export type ApiUser = DbUser;
 
 export type WorkflowStep = "created" | "line_manager" | "sales_director" | "final";
 
@@ -48,8 +49,6 @@ export type ApiAudit = {
 };
 
 type BackendState = {
-  users: ApiUser[];
-  refreshTokens: Map<string, { userId: string; exp: number }>;
   estimates: ApiEstimate[];
   sheets: Record<string, ApiSheet>;
   rates: ExchangeRateTable;
@@ -58,25 +57,9 @@ type BackendState = {
 
 const globalBackend = globalThis as typeof globalThis & { __v11Backend?: BackendState };
 
-function hashPassword(password: string, salt = randomBytes(16).toString("hex")) {
-  const passwordHash = scryptSync(password, salt, 32).toString("hex");
-  return { passwordHash, passwordSalt: salt };
-}
-
-function seedUser(id: string, email: string, name: string, role: ApiRole): ApiUser {
-  const password = hashPassword("Estimate123!");
-  return { id, email, name, role, ...password };
-}
-
 function state(): BackendState {
   if (!globalBackend.__v11Backend) {
     globalBackend.__v11Backend = {
-      users: [
-        seedUser("usr-rep-1", "rep1@v11.estimate", "Rep 1", "Representative"),
-        seedUser("usr-manager", "manager@v11.estimate", "Line Manager", "Line Manager"),
-        seedUser("usr-director", "director@v11.estimate", "Sales Director", "Sales Director"),
-      ],
-      refreshTokens: new Map(),
       estimates: [],
       sheets: {},
       rates: { ...DEFAULT_RATES },
@@ -87,48 +70,64 @@ function state(): BackendState {
 }
 
 export function verifyPassword(user: ApiUser, password: string) {
-  const actual = Buffer.from(scryptSync(password, user.passwordSalt, 32).toString("hex"));
-  const expected = Buffer.from(user.passwordHash);
-  return actual.length === expected.length && timingSafeEqual(actual, expected);
+  return verifyUserPassword(user, password);
 }
 
-export function findUserByEmail(email: string) {
-  return state().users.find((user) => user.email.toLowerCase() === email.toLowerCase()) ?? null;
+export async function findUserByEmail(email: string): Promise<ApiUser | null> {
+  return dbFindUserByEmail(email);
 }
 
-export function findUserById(id: string) {
-  return state().users.find((user) => user.id === id) ?? null;
+export async function findUserById(id: string): Promise<ApiUser | null> {
+  return dbFindUserById(id);
 }
 
 export function publicUser(user: ApiUser) {
-  return { id: user.id, email: user.email, name: user.name, role: user.role };
+  return toPublicUser(user);
 }
 
-export function saveRefreshToken(tokenId: string, userId: string, exp: number) {
-  state().refreshTokens.set(tokenId, { userId, exp });
+export async function saveRefreshToken(tokenId: string, userId: string, exp: number) {
+  await ensureDb();
+  await sql()`
+    insert into refresh_tokens(token_id, user_id, expires_at)
+    values (${tokenId}, ${userId}, ${new Date(exp * 1000).toISOString()})
+    on conflict (token_id) do update set user_id = excluded.user_id, expires_at = excluded.expires_at
+  `;
 }
 
-export function takeRefreshToken(tokenId: string) {
-  const record = state().refreshTokens.get(tokenId);
-  if (!record) return null;
-  state().refreshTokens.delete(tokenId);
-  if (record.exp < Math.floor(Date.now() / 1000)) return null;
-  return record;
+export async function takeRefreshToken(tokenId: string) {
+  await ensureDb();
+  const rows = await sql()`
+    delete from refresh_tokens where token_id = ${tokenId}
+    returning user_id, extract(epoch from expires_at)::bigint as exp
+  `;
+  const row = rows[0] as { user_id?: string; exp?: number } | undefined;
+  if (!row?.user_id) return null;
+  const exp = Number(row.exp ?? 0);
+  if (exp < Math.floor(Date.now() / 1000)) return null;
+  return { userId: String(row.user_id), exp };
 }
 
-export function dropRefreshToken(tokenId: string) {
-  state().refreshTokens.delete(tokenId);
+export async function dropRefreshToken(tokenId: string) {
+  await ensureDb();
+  await sql()`delete from refresh_tokens where token_id = ${tokenId}`;
 }
 
-function audit(entry: Omit<ApiAudit, "id" | "at">) {
+// --- v1 API in-memory domain store (separate from workspace Postgres data) ---
+// NOTE: domain operations remain in-memory and are not unified with workspace Postgres data.
+
+function audit(event: Omit<ApiAudit, "id" | "at">) {
   const store = state();
-  const event: ApiAudit = {
+  const item: ApiAudit = {
     id: `AUD-${String(store.audit.length + 1).padStart(3, "0")}`,
     at: new Date().toISOString(),
-    ...entry,
+    ...event,
   };
-  store.audit = [event, ...store.audit];
-  return event;
+  store.audit = [item, ...store.audit];
+  return item;
+}
+
+function makeId(store: BackendState) {
+  return `EST-2026-${String(store.estimates.length + 1).padStart(3, "0")}`;
 }
 
 export function listEstimates() {
@@ -136,8 +135,7 @@ export function listEstimates() {
 }
 
 export function getEstimate(id: string) {
-  const found = state().estimates.find((estimate) => estimate.id === id);
-  return found ? { ...found } : null;
+  return state().estimates.find((estimate) => estimate.id === id) ?? null;
 }
 
 export function createEstimate(
@@ -146,10 +144,10 @@ export function createEstimate(
 ) {
   const store = state();
   const estimate: ApiEstimate = {
-    id: `EST-2026-${String(store.estimates.length + 1).padStart(3, "0")}`,
+    id: makeId(store),
     title: input.title.trim(),
     clientName: input.clientName.trim(),
-    originator: actor.name,
+    originator: actor.name || actor.role,
     description: input.description?.trim() ?? "",
     status: "pending",
     reviewStage: "draft",
@@ -164,51 +162,34 @@ export function createEstimate(
   store.sheets[estimate.id] = { estimateId: estimate.id, version: "v1", lines: [] };
   audit({
     actor: actor.name,
-    role: actor.role,
+    role: actor.role as ApiRole,
     action: "estimate.created",
     estimateId: estimate.id,
-    detail: "created",
+    detail: estimate.title,
   });
   return { ...estimate };
 }
 
-const SOURCES = new Set<SourceMode>(["Local", "Air", "Sea"]);
-const CURRENCIES = new Set<SheetCurrency>(["NGN", "USD", "EUR", "GBP"]);
-
-function cleanLine(line: Partial<SheetLine>, index: number): SheetLine | null {
-  const item = line.item?.trim() ?? "";
-  const qty = line.qty?.trim() ?? "";
-  const base = line.base?.trim() ?? "";
-  const freight = line.freight?.trim() ?? "";
-  const msc = line.msc?.trim() ?? "";
-  if (!item && !qty && !base && !freight && !msc) return null;
-  const source = SOURCES.has(line.source as SourceMode) ? (line.source as SourceMode) : "Local";
-  const currency = CURRENCIES.has(line.currency as SheetCurrency) ? (line.currency as SheetCurrency) : "NGN";
-  return {
-    id: line.id?.trim() || `line-${index + 1}`,
-    item,
-    source,
-    currency,
-    qty,
-    base,
-    freight,
-    msc,
-  };
-}
-
 export function getSheetView(id: string) {
-  const estimate = state().estimates.find((item) => item.id === id);
+  const estimate = getEstimate(id);
   const sheet = state().sheets[id];
   if (!estimate || !sheet) return null;
-  const summary = summarizeSheet(sheet.lines, state().rates);
+  const rates = state().rates;
+  const summary = summarizeSheet(sheet.lines, rates);
   return {
-    estimate,
+    estimateId: id,
     version: sheet.version,
     lines: summary.lines,
-    grandTotalNgn: summary.grandTotalNgn,
-    soncapUsd: summary.soncapUsd,
-    rates: { ...state().rates },
+    summary: {
+      itemCount: summary.itemCount,
+      grandTotalNgn: summary.grandTotalNgn,
+      soncapUsd: summary.soncapUsd,
+    },
+    rates,
+    reviewStage: estimate.reviewStage,
     workflow: workflow(estimate),
+    submittedAt: estimate.submittedAt,
+    submittedBy: estimate.submittedBy,
   };
 }
 
@@ -226,6 +207,22 @@ export function workflow(estimate: ApiEstimate) {
     label: labels[stepIndex],
     state: stepIndex < index ? "complete" : stepIndex === index ? "current" : "upcoming",
   }));
+}
+
+const SOURCES = new Set<SourceMode>(["Local", "Air", "Sea"]);
+const CURRENCIES = new Set<SheetCurrency>(["NGN", "USD", "EUR", "GBP"]);
+
+function cleanLine(line: Partial<SheetLine>, index: number): SheetLine {
+  return {
+    id: typeof line.id === "string" && line.id ? line.id : `line-${index + 1}`,
+    item: typeof line.item === "string" ? line.item.trim() : "",
+    source: SOURCES.has(line.source as SourceMode) ? (line.source as SourceMode) : "Local",
+    currency: CURRENCIES.has(line.currency as SheetCurrency) ? (line.currency as SheetCurrency) : "NGN",
+    qty: typeof line.qty === "string" ? line.qty : "",
+    base: typeof line.base === "string" ? line.base : "",
+    freight: typeof line.freight === "string" ? line.freight : "",
+    msc: typeof line.msc === "string" ? line.msc : "",
+  };
 }
 
 export function saveSheet(id: string, lines: Partial<SheetLine>[], actor: ApiUser) {
@@ -247,7 +244,7 @@ export function saveSheet(id: string, lines: Partial<SheetLine>[], actor: ApiUse
     .forEach(() => {
       audit({
         actor: actor.name,
-        role: actor.role,
+        role: actor.role as ApiRole,
         action: "item.added",
         estimateId: id,
         detail: "Item added",
@@ -275,7 +272,7 @@ export function submitEstimate(id: string, actor: ApiUser) {
   estimate.totalNgn = summarizeSheet(sheet.lines, store.rates).grandTotalNgn;
   audit({
     actor: actor.name,
-    role: actor.role,
+    role: actor.role as ApiRole,
     action: "sheet.submitted",
     estimateId: id,
     detail: "Submitted for Line Manager review",
@@ -303,7 +300,7 @@ export function decideEstimate(id: string, decision: "approved" | "returned", ac
     return { error: "There is no estimate waiting for a decision." as const, status: 409 as const };
   }
   const required = ROLE_FOR_STEP[estimate.workflowStep];
-  if (actor.role !== required) {
+  if (actor.role !== required && actor.role !== "Admin") {
     return { error: `${required} must decide this step.` as const, status: 403 as const };
   }
   if (decision === "returned") {
@@ -312,7 +309,7 @@ export function decideEstimate(id: string, decision: "approved" | "returned", ac
     estimate.workflowStep = "created";
     audit({
       actor: actor.name,
-      role: actor.role,
+      role: actor.role as ApiRole,
       action: "sheet.returned",
       estimateId: id,
       detail: "Returned",
@@ -326,7 +323,7 @@ export function decideEstimate(id: string, decision: "approved" | "returned", ac
     estimate.status = "approved";
     audit({
       actor: actor.name,
-      role: actor.role,
+      role: actor.role as ApiRole,
       action: "sheet.approved",
       estimateId: id,
       detail: "Finally Approved",
@@ -335,7 +332,7 @@ export function decideEstimate(id: string, decision: "approved" | "returned", ac
     estimate.workflowStep = next;
     audit({
       actor: actor.name,
-      role: actor.role,
+      role: actor.role as ApiRole,
       action: "sheet.advanced",
       estimateId: id,
       detail: `Moved to ${next.replaceAll("_", " ")}`,
@@ -384,35 +381,6 @@ export function listReports() {
       totalNgn: estimate.totalNgn,
       version: estimate.version,
     }));
-}
-
-export function exportBackend() {
-  const current = state();
-  return {
-    users: current.users,
-    estimates: current.estimates,
-    sheets: current.sheets,
-    rates: current.rates,
-    audit: current.audit,
-    refreshTokens: [...current.refreshTokens.entries()],
-  };
-}
-
-export function replaceBackend(data: {
-  users: ApiUser[];
-  estimates: ApiEstimate[];
-  sheets: Record<string, ApiSheet>;
-  rates: ExchangeRateTable;
-  audit: ApiAudit[];
-  refreshTokens: [string, { userId: string; exp: number }][];
-}) {
-  const current = state();
-  current.users = data.users;
-  current.estimates = data.estimates;
-  current.sheets = data.sheets;
-  current.rates = data.rates;
-  current.audit = data.audit;
-  current.refreshTokens = new Map(data.refreshTokens);
 }
 
 export function dashboard() {

@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: v1-evaluate
+    env:
+      # CI needs a database to validate migrations against a real Postgres instance.
+      # Provide DATABASE_URL (and any secrets) via repository/environment secrets.
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+      JWT_SECRET: ${{ secrets.JWT_SECRET }}
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: v1-evaluate/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Typecheck
+        run: npx tsc --noEmit
+      - name: Migrate (required for schema changes)
+        run: npm run db:migrate
+      - name: Build
+        run: npm run build

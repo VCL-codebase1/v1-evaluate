@@ -1,28 +1,70 @@
 # V11 Estimate
 
-V11 Estimate is the workspace for building RFQ cost sheets, routing them through line manager and sales director approval, and keeping the audit history of every change.
+Workspace app for RFQs, estimation sheets, approvals, and reporting built with Next.js (App Router), React, and TypeScript.
 
-Representatives prepare a quotation. Line managers review the full estimation sheet, including manufacturer, sourcing, and the NGN totals. Sales directors complete the final approval.
-
-## API documentation
-
-Interactive docs: [http://localhost:3000/api/docs](http://localhost:3000/api/docs)
-
-OpenAPI 1.1.0 document: [http://localhost:3000/api/v1/openapi.json](http://localhost:3000/api/v1/openapi.json)
-
-Sign in from the docs with `rep1@v11.estimate`, `manager@v11.estimate`, or `director@v11.estimate`. The shared password is `Estimate123!`. Send the access token as `Authorization: Bearer`.
-
-## PostgreSQL
-
-Copy `.env.example` to `.env.local` and set `DATABASE_URL` to your PostgreSQL database. The API creates `workspace_state` and `api_state` on first use. Leave `DATABASE_URL` unset to run the workspace against the in-memory store.
-
-`JWT_SECRET` signs the `/api/v1` access and refresh tokens.
-
-## Run locally
+## Local development
 
 ```bash
+cd v1-evaluate
 npm install
+cp .env.example .env.local   # then set DATABASE_URL, SESSION_SECRET, JWT_SECRET
+npm run db:migrate
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). Sign in with an email that contains `manager` to open the line manager workspace.
+Open [http://localhost:3000](http://localhost:3000).
+
+Useful commands:
+
+- `npm run db:migrate` — apply pending SQL migrations from `db/migrations/` (tracked in `schema_migrations`)
+- `npm run lint` — run ESLint
+- `npm run build` — production build
+- `npm start` — run the production server after build
+
+## Environment variables
+
+Copy `.env.example` and set values before deploying:
+
+- `DATABASE_URL` — Postgres connection string (required; use SSL in production/Supabase)
+- `SESSION_SECRET` — signs the web session cookie (required in production)
+- `JWT_SECRET` — signs `/api/v1` access/refresh tokens (required in production)
+
+Use long, random values and keep them private. **Never commit `.env.local` or share credentials.**
+
+## Database & migrations
+
+- Schema changes are managed as ordered SQL files in `db/migrations/` and applied with `npm run db:migrate` (idempotent per migration, recorded in `schema_migrations`).
+- The app expects migrations to be applied (it verifies `schema_migrations` on DB access) rather than mutating schema at runtime.
+- Initial migration (`0001_init`) creates core tables, indexes, default exchange rates, and counters. `0002_production_auth_hardening` adds auth/reset/throttle tables and removes any legacy seeded demo users from existing databases.
+
+## Estimation sheet
+
+Representatives use the standard cost sheet. Line managers open **Estimation sheet** and get the BRD columns (manufacturer, model, part number, specification, sourcing, freight method, and the NGN totals). The sheet scrolls sideways; a swipe cue stays up until the table moves. Local items do not receive foreign sourcing charges.
+
+## Authentication & API notes
+
+- Web sign-in (`/login`) authenticates against DB users with lockout/rate-limiting and signed session cookies.
+- No demo accounts are seeded. Provision the first/admin user with `node scripts/create-admin.mjs --email admin@example.com --name "Admin"` (or use the admin UI at `/admin/users` once an Admin exists).
+- Password reset: `/forgot-password` requests a reset token (single-use, time-limited; reset URL is logged in non-production — configure a mail provider/out-of-band delivery for production) and `/reset-password` consumes it.
+- Bearer-token API: `/api/v1/*`. Interactive docs: [http://localhost:3000/api/docs](http://localhost:3000/api/docs). OpenAPI 1.1.0: [http://localhost:3000/api/v1/openapi.json](http://localhost:3000/api/v1/openapi.json). v1 auth/refresh tokens are DB-backed with throttling/lockout and role checks for privileged operations.
+- Health check: `GET /api/health` (reports database check status).
+
+## Provisioning, backups, and operations
+
+- **User provisioning/role admin**: Admin-only APIs `GET/POST /api/admin/users` and `PATCH /api/admin/users/:id` plus UI `/admin/users`. CLI bootstrap: `node scripts/create-admin.mjs ...`.
+- **Secrets**: rotate `SESSION_SECRET`, `JWT_SECRET`, and any exposed `DATABASE_URL`/DB passwords before production use. Keep secrets out of source control.
+- **Pooling/runtimes**: tune `DB_POOL_MAX`, `DB_IDLE_TIMEOUT`, `DB_CONNECT_TIMEOUT`, `DB_MAX_LIFETIME`, `DB_PREPARE` per runtime (serverless: very small pool; prefer Supabase transaction pooler for serverless; keep `DB_PREPARE=false` with transaction poolers).
+- **Backup/restore**: enable automated backups (e.g. Supabase PITR/backups), test restore regularly to a staging DB, document RPO/RTO, and run `npm run db:migrate` after restore before serving traffic.
+- **Observability**: auth/admin/security events emit structured JSON logs; forward logs to your platform/SIEM and alert on repeated auth failures, 429s, DB health degradation, and migration failures.
+
+## Production readiness notes
+
+Implemented in-repo: Postgres-backed workspace persistence with explicit migrations, signed/expiring web sessions, DB-backed users and v1 refresh tokens, login/reset throttling and account lockout, Admin user provisioning/role management APIs and UI, password reset token flow (hash stored, single-use/expiry), baseline security headers, DB-aware health check, and a self-hosted API docs page without third-party script dependencies.
+
+Still required for real production deployments:
+
+- **`/api/v1` data parity**: v1 estimate/sheet/workflow/rates/audit/report/dashboard operations still use an in-memory store (`src/lib/backend/store.ts`) separate from workspace Postgres data; unify/persist if `/api/v1` is production-facing.
+- **Password reset delivery**: integrate a mail provider or secure out-of-band delivery for reset links/tokens (current implementation does not send email; non-production logs the link for development).
+- **CSP & defense-in-depth**: add a tailored Content-Security-Policy, CSRF protections where appropriate for cookie-auth flows, and full authorization review of all workspace mutations by role/business ownership.
+- **Ops**: configure log aggregation/metrics/alerting, automated backups and tested restores, and CI secrets/DB for the migration+build pipeline (`.github/workflows/ci.yml` expects `DATABASE_URL`, `SESSION_SECRET`, `JWT_SECRET`).
+- **Security hygiene**: rotate any credentials/secrets ever exposed outside secure secret stores and restrict database/network access.
