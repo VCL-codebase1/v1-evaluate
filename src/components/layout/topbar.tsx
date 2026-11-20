@@ -9,7 +9,7 @@ export function Topbar({
 }: {
   role: string;
   name?: string;
-  estimateId: string;
+  estimateId?: string;
   version: string;
   organizationName?: string;
 }) {
@@ -18,7 +18,7 @@ export function Topbar({
     <header className="topbar">
       <p className="session-pill">
         <span>Signed in as</span>
-        <strong>{manager ? name || "Manager 1" : role}</strong>
+        <strong>{name || role}</strong>
         {organizationName ? (
           <>
             <span aria-hidden>·</span>
@@ -26,8 +26,8 @@ export function Topbar({
           </>
         ) : null}
         <span aria-hidden>·</span>
-        <strong>{manager ? role : estimateId}</strong>
-        {manager ? null : (
+        {manager || !estimateId ? null : <strong>{estimateId}</strong>}
+        {manager || !estimateId ? null : (
           <>
             <span aria-hidden>·</span>
             <strong>{version}</strong>
@@ -41,6 +41,6 @@ export function Topbar({
 
 export function TopbarFallback() {
   return (
-    <Topbar role="Representative" estimateId="EST-2026-001" version="v1" />
+    <Topbar role="Loading account…" version="v1" />
   );
 }

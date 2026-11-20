@@ -26,6 +26,7 @@ Useful commands:
 Copy `.env.example` and set values before deploying:
 
 - `DATABASE_URL` — Postgres connection string (required; use SSL in production/Supabase)
+- `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` — Supabase Auth configuration (required)
 - `SESSION_SECRET` — signs the web session cookie (required in production)
 - `JWT_SECRET` — signs `/api/v1` access/refresh tokens (required in production)
 
@@ -43,11 +44,12 @@ Representatives use the standard cost sheet. Line managers open **Estimation she
 
 ## Authentication & API notes
 
-- Web sign-in (`/login`) authenticates against DB users with lockout/rate-limiting and signed session cookies.
+- Web sign-in (`/login`) authenticates against Supabase Auth, then resolves the active organization-scoped workspace profile. Login throttling and lockout state are stored in Postgres.
 - No demo accounts are seeded. Provision the first/admin user with `node scripts/create-admin.mjs --email admin@example.com --name "Admin"` (or use the admin UI at `/admin/users` once an Admin exists).
-- Password reset: `/forgot-password` requests a reset token (single-use, time-limited; reset URL is logged in non-production — configure a mail provider/out-of-band delivery for production) and `/reset-password` consumes it.
+- Password reset: `/forgot-password` requests Supabase Auth recovery email and `/reset-password` consumes the provider recovery session. Configure Supabase Auth email templates and SMTP before deployment.
+- Exchange rates: each organization must set positive NGN-per-USD/EUR/GBP rates in **Exchange rates** before saving estimates that use those currencies. No sample foreign exchange values are supplied to new organizations.
 - Bearer-token API: `/api/v1/*`. Interactive docs: [http://localhost:3000/api/docs](http://localhost:3000/api/docs). OpenAPI 1.1.0: [http://localhost:3000/api/v1/openapi.json](http://localhost:3000/api/v1/openapi.json). v1 auth/refresh tokens are DB-backed with throttling/lockout and role checks for privileged operations.
-- Health check: `GET /api/health` (reports database check status).
+- Health check: `GET /api/health` (returns unhealthy unless Postgres and Supabase Auth are configured).
 
 ## Provisioning, backups, and operations
 
@@ -63,8 +65,8 @@ Implemented in-repo: Postgres-backed workspace persistence with explicit migrati
 
 Still required for real production deployments:
 
-- **`/api/v1` data parity**: v1 estimate/sheet/workflow/rates/audit/report/dashboard operations still use an in-memory store (`src/lib/backend/store.ts`) separate from workspace Postgres data; unify/persist if `/api/v1` is production-facing.
-- **Password reset delivery**: integrate a mail provider or secure out-of-band delivery for reset links/tokens (current implementation does not send email; non-production logs the link for development).
+- **`/api/v1` data parity**: v1 estimate/sheet/workflow/rates/audit/report/dashboard operations now use the same organization-scoped Postgres repository as the workspace.
+- **Password reset delivery**: configure and verify Supabase Auth email templates and SMTP in the Supabase project.
 - **CSP & defense-in-depth**: add a tailored Content-Security-Policy, CSRF protections where appropriate for cookie-auth flows, and full authorization review of all workspace mutations by role/business ownership.
 - **Ops**: configure log aggregation/metrics/alerting, automated backups and tested restores, and CI secrets/DB for the migration+build pipeline (`.github/workflows/ci.yml` expects `DATABASE_URL`, `SESSION_SECRET`, `JWT_SECRET`).
 - **Security hygiene**: rotate any credentials/secrets ever exposed outside secure secret stores and restrict database/network access.

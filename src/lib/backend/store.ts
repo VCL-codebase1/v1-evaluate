@@ -1,21 +1,31 @@
-import { DEFAULT_RATES, summarizeSheet } from "@/lib/estimation";
+import { summarizeSheet } from "@/lib/estimation";
+import {
+  createEstimate as createWorkspaceEstimate,
+  decideSheet,
+  getEstimate as getWorkspaceEstimate,
+  getExchangeRates,
+  getSheet,
+  listAudit as listWorkspaceAudit,
+  listClients as listWorkspaceClients,
+  listEstimates as listWorkspaceEstimates,
+  listReports as listWorkspaceReports,
+  saveExchangeRates,
+  saveSheet as saveWorkspaceSheet,
+  submitSheet,
+} from "@/lib/db";
 import { ensureDb } from "@/lib/db/schema";
 import { sql } from "@/lib/db/client";
 import {
   findUserByEmail as dbFindUserByEmail,
   findUserById as dbFindUserById,
-  verifyUserPassword,
   toPublicUser,
   type DbUser,
 } from "@/lib/auth/users";
-import type { ExchangeRateTable, ReviewStage, SheetCurrency, SheetLine, SourceMode } from "@/lib/types";
+import type { ExchangeRateTable, ReviewStage, SheetLine } from "@/lib/types";
 
-export type ApiRole = "Representative" | "Line Manager" | "Sales Director" | "Admin";
-
+export type ApiRole = "Representative" | "Line Manager" | "Sales Director" | "Admin" | "Super Admin";
 export type ApiUser = DbUser;
-
 export type WorkflowStep = "created" | "line_manager" | "sales_director" | "final";
-
 export type ApiEstimate = {
   id: string;
   title: string;
@@ -32,45 +42,26 @@ export type ApiEstimate = {
   submittedBy: string | null;
 };
 
-export type ApiSheet = {
-  estimateId: string;
-  version: string;
-  lines: SheetLine[];
-};
-
-export type ApiAudit = {
-  id: string;
-  at: string;
-  actor: string;
-  role: ApiRole;
-  action: string;
-  estimateId: string;
-  detail: string;
-};
-
-type BackendState = {
-  estimates: ApiEstimate[];
-  sheets: Record<string, ApiSheet>;
-  rates: ExchangeRateTable;
-  audit: ApiAudit[];
-};
-
-const globalBackend = globalThis as typeof globalThis & { __v11Backend?: BackendState };
-
-function state(): BackendState {
-  if (!globalBackend.__v11Backend) {
-    globalBackend.__v11Backend = {
-      estimates: [],
-      sheets: {},
-      rates: { ...DEFAULT_RATES },
-      audit: [],
-    };
-  }
-  return globalBackend.__v11Backend;
-}
-
-export function verifyPassword(user: ApiUser, password: string) {
-  return verifyUserPassword(user, password);
+function toApiEstimate(estimate: NonNullable<Awaited<ReturnType<typeof getWorkspaceEstimate>>>): ApiEstimate {
+  const storedStep = estimate.workflowStep;
+  const workflowStep: WorkflowStep = storedStep === "sales_director" || storedStep === "final" || storedStep === "line_manager"
+    ? storedStep
+    : estimate.reviewStage === "approved" ? "final" : "created";
+  return {
+    id: estimate.id,
+    title: estimate.title,
+    clientName: estimate.clientName,
+    originator: estimate.originator,
+    description: estimate.description,
+    status: estimate.status,
+    reviewStage: estimate.reviewStage,
+    workflowStep,
+    version: estimate.version,
+    totalNgn: estimate.totalNgn,
+    createdAt: estimate.createdAt,
+    submittedAt: estimate.submittedAt,
+    submittedBy: estimate.submittedBy,
+  };
 }
 
 export async function findUserByEmail(email: string): Promise<ApiUser | null> {
@@ -112,69 +103,48 @@ export async function dropRefreshToken(tokenId: string) {
   await sql()`delete from refresh_tokens where token_id = ${tokenId}`;
 }
 
-// --- v1 API in-memory domain store (separate from workspace Postgres data) ---
-// NOTE: domain operations remain in-memory and are not unified with workspace Postgres data.
-
-function audit(event: Omit<ApiAudit, "id" | "at">) {
-  const store = state();
-  const item: ApiAudit = {
-    id: `AUD-${String(store.audit.length + 1).padStart(3, "0")}`,
-    at: new Date().toISOString(),
-    ...event,
-  };
-  store.audit = [item, ...store.audit];
-  return item;
+export async function listEstimates(organizationId: string) {
+  return (await listWorkspaceEstimates(organizationId)).map((estimate) => toApiEstimate(estimate));
 }
 
-function makeId(store: BackendState) {
-  return `EST-2026-${String(store.estimates.length + 1).padStart(3, "0")}`;
+export async function getEstimate(id: string, organizationId: string) {
+  const estimate = await getWorkspaceEstimate(id, organizationId);
+  return estimate ? toApiEstimate(estimate) : null;
 }
 
-export function listEstimates() {
-  return state().estimates.map((estimate) => ({ ...estimate }));
-}
-
-export function getEstimate(id: string) {
-  return state().estimates.find((estimate) => estimate.id === id) ?? null;
-}
-
-export function createEstimate(
+export async function createEstimate(
   input: { title: string; clientName: string; description?: string },
   actor: ApiUser,
 ) {
-  const store = state();
-  const estimate: ApiEstimate = {
-    id: makeId(store),
-    title: input.title.trim(),
-    clientName: input.clientName.trim(),
-    originator: actor.name || actor.role,
-    description: input.description?.trim() ?? "",
-    status: "pending",
-    reviewStage: "draft",
-    workflowStep: "created",
-    version: "v1",
-    totalNgn: null,
-    createdAt: new Date().toISOString(),
-    submittedAt: null,
-    submittedBy: null,
-  };
-  store.estimates = [estimate, ...store.estimates];
-  store.sheets[estimate.id] = { estimateId: estimate.id, version: "v1", lines: [] };
-  audit({
-    actor: actor.name,
-    role: actor.role as ApiRole,
-    action: "estimate.created",
-    estimateId: estimate.id,
-    detail: estimate.title,
+  const estimate = await createWorkspaceEstimate({
+    ...input,
+    organizationId: actor.organizationId,
+    originator: actor.name,
   });
-  return { ...estimate };
+  return toApiEstimate(estimate);
 }
 
-export function getSheetView(id: string) {
-  const estimate = getEstimate(id);
-  const sheet = state().sheets[id];
+const workflow = (estimate: ApiEstimate) => {
+  const steps: { key: WorkflowStep; label: string }[] = [
+    { key: "created", label: "Estimate Created" },
+    { key: "line_manager", label: "Approved by Line Manager" },
+    { key: "sales_director", label: "Approved by Sales Director" },
+    { key: "final", label: "Finally Approved" },
+  ];
+  const index = steps.findIndex((step) => step.key === estimate.workflowStep);
+  return steps.map((step, i) => ({
+    ...step,
+    state: i < index ? "complete" : i === index ? "current" : "upcoming",
+  }));
+};
+
+export async function getSheetView(id: string, organizationId: string) {
+  const [estimate, sheet, rates] = await Promise.all([
+    getEstimate(id, organizationId),
+    getSheet(id, organizationId),
+    getExchangeRates(organizationId),
+  ]);
   if (!estimate || !sheet) return null;
-  const rates = state().rates;
   const summary = summarizeSheet(sheet.lines, rates);
   return {
     estimateId: id,
@@ -186,205 +156,48 @@ export function getSheetView(id: string) {
       soncapUsd: summary.soncapUsd,
     },
     rates,
-    reviewStage: estimate.reviewStage,
+    reviewStage: sheet.reviewStage,
     workflow: workflow(estimate),
-    submittedAt: estimate.submittedAt,
-    submittedBy: estimate.submittedBy,
+    submittedAt: sheet.submittedAt,
+    submittedBy: sheet.submittedBy,
   };
 }
 
-export function workflow(estimate: ApiEstimate) {
-  const order: WorkflowStep[] = ["created", "line_manager", "sales_director", "final"];
-  const labels = [
-    "Estimate Created",
-    "Approved by Line Manager",
-    "Approved by Sales Director",
-    "Finally Approved",
-  ];
-  const index = order.indexOf(estimate.workflowStep);
-  return order.map((key, stepIndex) => ({
-    key,
-    label: labels[stepIndex],
-    state: stepIndex < index ? "complete" : stepIndex === index ? "current" : "upcoming",
-  }));
+export async function saveSheet(id: string, lines: Partial<SheetLine>[], actor: ApiUser) {
+  return saveWorkspaceSheet(id, actor.organizationId, lines, "v1", actor.name);
 }
 
-const SOURCES = new Set<SourceMode>(["Local", "Air", "Sea"]);
-const CURRENCIES = new Set<SheetCurrency>(["NGN", "USD", "EUR", "GBP"]);
-
-function cleanLine(line: Partial<SheetLine>, index: number): SheetLine {
-  return {
-    id: typeof line.id === "string" && line.id ? line.id : `line-${index + 1}`,
-    item: typeof line.item === "string" ? line.item.trim() : "",
-    source: SOURCES.has(line.source as SourceMode) ? (line.source as SourceMode) : "Local",
-    currency: CURRENCIES.has(line.currency as SheetCurrency) ? (line.currency as SheetCurrency) : "NGN",
-    qty: typeof line.qty === "string" ? line.qty : "",
-    base: typeof line.base === "string" ? line.base : "",
-    freight: typeof line.freight === "string" ? line.freight : "",
-    msc: typeof line.msc === "string" ? line.msc : "",
-  };
+export async function submitEstimate(id: string, actor: ApiUser) {
+  return submitSheet(id, actor.organizationId, actor.name, "v1");
 }
 
-export function saveSheet(id: string, lines: Partial<SheetLine>[], actor: ApiUser) {
-  const store = state();
-  const estimate = store.estimates.find((item) => item.id === id);
-  const sheet = store.sheets[id];
-  if (!estimate || !sheet) return { error: "Estimate not found." as const, status: 404 as const };
-  if (estimate.reviewStage === "in_review" || estimate.reviewStage === "approved") {
-    return { error: "This estimate is locked while it is in review." as const, status: 409 as const };
-  }
-  const previous = new Set(sheet.lines.map((line) => line.id));
-  const next = lines.map(cleanLine).filter((line): line is SheetLine => Boolean(line));
-  sheet.lines = next;
-  const summary = summarizeSheet(next, store.rates);
-  estimate.totalNgn = summary.grandTotalNgn;
-  estimate.reviewStage = estimate.reviewStage === "returned" ? "draft" : estimate.reviewStage;
-  next
-    .filter((line) => line.item.trim() && !previous.has(line.id))
-    .forEach(() => {
-      audit({
-        actor: actor.name,
-        role: actor.role as ApiRole,
-        action: "item.added",
-        estimateId: id,
-        detail: "Item added",
-      });
-    });
-  return { sheet: getSheetView(id) };
+export async function decideEstimate(id: string, decision: "approved" | "returned", actor: ApiUser) {
+  return decideSheet(id, actor.organizationId, decision, actor.name, actor.role);
 }
 
-export function submitEstimate(id: string, actor: ApiUser) {
-  const store = state();
-  const estimate = store.estimates.find((item) => item.id === id);
-  const sheet = store.sheets[id];
-  if (!estimate || !sheet) return { error: "Estimate not found." as const, status: 404 as const };
-  if (!sheet.lines.some((line) => line.item.trim())) {
-    return { error: "Add an item before submitting for review." as const, status: 400 as const };
-  }
-  if (estimate.reviewStage === "in_review" || estimate.reviewStage === "approved") {
-    return { error: "This estimate has already been submitted." as const, status: 409 as const };
-  }
-  estimate.reviewStage = "in_review";
-  estimate.workflowStep = "created";
-  estimate.status = "pending";
-  estimate.submittedAt = new Date().toISOString();
-  estimate.submittedBy = actor.name;
-  estimate.totalNgn = summarizeSheet(sheet.lines, store.rates).grandTotalNgn;
-  audit({
-    actor: actor.name,
-    role: actor.role as ApiRole,
-    action: "sheet.submitted",
-    estimateId: id,
-    detail: "Submitted for Line Manager review",
-  });
-  return { sheet: getSheetView(id) };
+export async function listAudit(organizationId: string, estimateId?: string) {
+  const events = await listWorkspaceAudit(organizationId);
+  return events.filter((event) => !estimateId || event.estimateId === estimateId);
 }
 
-const NEXT_STEP: Record<WorkflowStep, WorkflowStep | null> = {
-  created: "line_manager",
-  line_manager: "sales_director",
-  sales_director: "final",
-  final: null,
-};
-
-const ROLE_FOR_STEP: Record<WorkflowStep, ApiRole> = {
-  created: "Line Manager",
-  line_manager: "Sales Director",
-  sales_director: "Sales Director",
-  final: "Sales Director",
-};
-
-export function decideEstimate(id: string, decision: "approved" | "returned", actor: ApiUser) {
-  const estimate = state().estimates.find((item) => item.id === id);
-  if (!estimate || estimate.reviewStage !== "in_review") {
-    return { error: "There is no estimate waiting for a decision." as const, status: 409 as const };
-  }
-  const required = ROLE_FOR_STEP[estimate.workflowStep];
-  if (actor.role !== required && actor.role !== "Admin") {
-    return { error: `${required} must decide this step.` as const, status: 403 as const };
-  }
-  if (decision === "returned") {
-    estimate.reviewStage = "returned";
-    estimate.status = "rejected";
-    estimate.workflowStep = "created";
-    audit({
-      actor: actor.name,
-      role: actor.role as ApiRole,
-      action: "sheet.returned",
-      estimateId: id,
-      detail: "Returned",
-    });
-    return { sheet: getSheetView(id) };
-  }
-  const next = NEXT_STEP[estimate.workflowStep];
-  if (!next || next === "final") {
-    estimate.workflowStep = "final";
-    estimate.reviewStage = "approved";
-    estimate.status = "approved";
-    audit({
-      actor: actor.name,
-      role: actor.role as ApiRole,
-      action: "sheet.approved",
-      estimateId: id,
-      detail: "Finally Approved",
-    });
-  } else {
-    estimate.workflowStep = next;
-    audit({
-      actor: actor.name,
-      role: actor.role as ApiRole,
-      action: "sheet.advanced",
-      estimateId: id,
-      detail: `Moved to ${next.replaceAll("_", " ")}`,
-    });
-  }
-  return { sheet: getSheetView(id) };
+export async function getRates(organizationId: string) {
+  return getExchangeRates(organizationId);
 }
 
-export function listAudit(estimateId?: string) {
-  return state()
-    .audit.filter((event) => !estimateId || event.estimateId === estimateId)
-    .map((event) => ({ ...event }));
+export async function saveRates(organizationId: string, patch: Partial<ExchangeRateTable>) {
+  return saveExchangeRates(organizationId, patch);
 }
 
-export function getRates() {
-  return { ...state().rates };
+export async function listClients(organizationId: string) {
+  return listWorkspaceClients(organizationId);
 }
 
-export function saveRates(patch: Partial<ExchangeRateTable>) {
-  const rates = getRates();
-  (Object.keys(DEFAULT_RATES) as SheetCurrency[]).forEach((currency) => {
-    const next = patch[currency];
-    if (typeof next === "number" && Number.isFinite(next) && next > 0) rates[currency] = next;
-  });
-  rates.NGN = 1;
-  state().rates = rates;
-  return { ...rates };
+export async function listReports(organizationId: string) {
+  return listWorkspaceReports(organizationId);
 }
 
-export function listClients() {
-  const clients = new Map<string, number>();
-  for (const estimate of state().estimates) {
-    if (!estimate.clientName) continue;
-    clients.set(estimate.clientName, (clients.get(estimate.clientName) ?? 0) + 1);
-  }
-  return [...clients.entries()].map(([name, estimates]) => ({ name, estimates }));
-}
-
-export function listReports() {
-  return state()
-    .estimates.filter((estimate) => estimate.reviewStage === "approved")
-    .map((estimate) => ({
-      id: estimate.id,
-      title: estimate.title,
-      clientName: estimate.clientName,
-      totalNgn: estimate.totalNgn,
-      version: estimate.version,
-    }));
-}
-
-export function dashboard() {
-  const estimates = state().estimates;
+export async function dashboard(organizationId: string) {
+  const estimates = await listWorkspaceEstimates(organizationId);
   return {
     total: estimates.length,
     pending: estimates.filter((estimate) => estimate.status === "pending").length,

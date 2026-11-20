@@ -4,9 +4,9 @@ export const MARKUP = 0.4;
 
 export const DEFAULT_RATES: ExchangeRateTable = {
   NGN: 1,
-  USD: 1500,
-  EUR: 1620,
-  GBP: 1900,
+  USD: 0,
+  EUR: 0,
+  GBP: 0,
 };
 
 const CHARGES: Record<SourceMode, { bank: number; duty: number | null; agency: number | null }> = {

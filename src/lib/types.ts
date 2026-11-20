@@ -33,6 +33,7 @@ export type EstimateRecord = {
   mode: string;
   status: EstimateStatus;
   reviewStage: ReviewStage;
+  workflowStep?: string;
   version: string;
   submittedAt: string | null;
   submittedBy: string | null;

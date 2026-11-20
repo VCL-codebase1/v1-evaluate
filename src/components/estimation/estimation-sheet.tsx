@@ -60,6 +60,11 @@ export function EstimationSheet({
     () => summarizeSheet(lines.length > 0 ? lines : [draft], rates),
     [lines, draft, rates],
   );
+  const missingRates = [...new Set(
+    (lines.length > 0 ? lines : [draft])
+      .filter((line) => line.currency !== "NGN" && rates[line.currency] <= 0)
+      .map((line) => line.currency),
+  )];
 
   useEffect(() => {
     let active = true;
@@ -174,7 +179,7 @@ export function EstimationSheet({
     <div className="page-stack">
       <div className="page-heading">
         <h1 className="text-page-title">Estimation sheet</h1>
-        <Button type="button" variant="primary" size="sm" onClick={submit} disabled={locked || pending !== null}>
+        <Button type="button" variant="primary" size="sm" onClick={submit} disabled={locked || pending !== null || missingRates.length > 0}>
           {locked ? "Submitted for review" : pending === "submit" ? "Submitting…" : "Submit for review"}
         </Button>
       </div>
@@ -199,7 +204,7 @@ export function EstimationSheet({
             + Add item
           </Button>
           {lines.length > 0 ? (
-            <Button type="button" variant="quiet" size="sm" onClick={saveDraft} disabled={locked || pending !== null}>
+            <Button type="button" variant="quiet" size="sm" onClick={saveDraft} disabled={locked || pending !== null || missingRates.length > 0}>
               {pending === "save" ? "Saving…" : "Save draft"}
             </Button>
           ) : null}
@@ -207,6 +212,11 @@ export function EstimationSheet({
       </div>
 
       {message ? <p className="sheet-message">{message}</p> : null}
+      {missingRates.length > 0 ? (
+        <p className="text-error" role="alert">
+          Set an NGN exchange rate for {missingRates.join(", ")} in <a className="text-link" href="/exchange-rates">Exchange rates</a> before saving or submitting.
+        </p>
+      ) : null}
 
       <section className="surface-card panel-card sheet-card" aria-busy={loading}>
         <div className="table-scroll">

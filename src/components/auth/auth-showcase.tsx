@@ -1,7 +1,5 @@
 import { Logo } from "@/components/brand/logo";
 import { CheckIcon } from "@/components/layout/icons";
-import { EstimatePreviewCard } from "@/components/auth/estimate-preview-card";
-import { MARKETING_STATS } from "@/lib/constants";
 
 export function AuthShowcase() {
   return (
@@ -25,15 +23,14 @@ export function AuthShowcase() {
             <CheckIcon width={20} height={20} />
             Local, air and sea costs calculated automatically
           </p>
-        </div>
-        <EstimatePreviewCard />
-        <div className="auth-stats">
-          {MARKETING_STATS.map((stat) => (
-            <div key={stat.value}>
-              <p className="text-stat-value">{stat.value}</p>
-              <p className="text-stat-detail">{stat.detail}</p>
-            </div>
-          ))}
+          <p className="auth-check text-check">
+            <CheckIcon width={20} height={20} />
+            Exchange rates and approvals scoped to your organization
+          </p>
+          <p className="auth-check text-check">
+            <CheckIcon width={20} height={20} />
+            RFQs, estimates and audit history stored in your workspace
+          </p>
         </div>
       </div>
     </section>

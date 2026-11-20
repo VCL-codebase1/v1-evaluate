@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { checkThrottle, registerFailure, throttleSubject } from "@/lib/auth/throttle";
-import { getUserProfileByAuthId, setPassword } from "@/lib/auth/users";
+import { getUserProfileByAuthId, clearPasswordState } from "@/lib/auth/users";
 import { log, requestMeta } from "@/lib/observability/logger";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -73,7 +73,7 @@ export async function POST(request: Request) {
     const profile = await getUserProfileByAuthId(userData.user.id);
     if (profile) {
       // Clear local lock/must-change flags and (best-effort) local hash marker; Supabase is source of truth.
-      await setPassword(profile.id, password, { mustChangePassword: false, revokeRefreshTokens: true });
+      await clearPasswordState(profile.id, { mustChangePassword: false, revokeRefreshTokens: true });
     }
 
     log.info("auth.password_reset.completed", { ip: meta.ip, userId: profile?.id ?? null, provider: "supabase" });

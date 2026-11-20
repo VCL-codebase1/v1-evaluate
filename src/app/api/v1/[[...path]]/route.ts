@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 import {
   createEstimate,
   dashboard,
@@ -20,7 +21,6 @@ import {
   saveSheet,
   submitEstimate,
   takeRefreshToken,
-  verifyPassword,
   type ApiUser,
 } from "@/lib/backend/store";
 import { openApiDocument } from "@/lib/backend/openapi";
@@ -29,6 +29,8 @@ import type { ExchangeRateTable, SheetLine } from "@/lib/types";
 import { log, requestMeta } from "@/lib/observability/logger";
 import { checkThrottle, clearThrottle, registerFailure, throttleSubject } from "@/lib/auth/throttle";
 import { isUserLocked, markLoginFailure, markLoginSuccess } from "@/lib/auth/users";
+import { canManageExchangeRates, canSubmitEstimate, isOrgAdmin } from "@/lib/auth/roles";
+import { getSupabaseAnonKey, getSupabaseUrl } from "@/lib/supabase/env";
 
 type Context = { params: Promise<{ path?: string[] }> };
 
@@ -92,12 +94,20 @@ async function handle(request: Request, context: Context) {
     }
 
     const user = email ? await findUserByEmail(email) : null;
-    if (!user || !user.isActive || isUserLocked(user) || !verifyPassword(user, password)) {
-      if (user && user.isActive && !isUserLocked(user)) {
-        await markLoginFailure(user.id);
-      }
+    if (!user || !user.isActive || isUserLocked(user) || !user.authUserId) {
       await Promise.all([registerFailure(ipCfg), registerFailure(emailCfg)]);
       log.warn("v1.auth.login.failed", { ip: meta.ip, reason: !user ? "not_found" : !user.isActive ? "inactive" : isUserLocked(user) ? "locked" : "bad_password" });
+      return json({ error: "Email or password is incorrect." }, 401);
+    }
+
+    const supabase = createClient(getSupabaseUrl(), getSupabaseAnonKey(), {
+      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+    });
+    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({ email, password });
+    if (authError || authData.user?.id !== user.authUserId) {
+      await markLoginFailure(user.id);
+      await Promise.all([registerFailure(ipCfg), registerFailure(emailCfg)]);
+      log.warn("v1.auth.login.failed", { ip: meta.ip, reason: "supabase_auth" });
       return json({ error: "Email or password is incorrect." }, 401);
     }
 
@@ -135,7 +145,7 @@ async function handle(request: Request, context: Context) {
   if (!user) return json({ error: "Sign in with a bearer access token." }, 401);
 
   const role = user.role;
-  const canManageRates = role === "Admin" || role === "Sales Director" || role === "Line Manager";
+  const canManageRates = canManageExchangeRates(role);
 
   if (method === "POST" && key === "auth/logout") {
     const body = await readJson(request);
@@ -147,63 +157,76 @@ async function handle(request: Request, context: Context) {
   }
 
   if (method === "GET" && key === "auth/me") return json({ user: publicUser(user) });
-  if (method === "GET" && key === "estimates") return json({ estimates: listEstimates() });
+  if (method === "GET" && key === "estimates") return json({ estimates: await listEstimates(user.organizationId) });
   if (method === "GET" && key === "approvals") {
+    const estimates = await listEstimates(user.organizationId);
     return json({
-      estimates: listEstimates().filter((estimate) => estimate.reviewStage === "in_review" || estimate.reviewStage === "approved"),
+      estimates: estimates.filter((estimate) => estimate.reviewStage === "in_review" || estimate.reviewStage === "approved"),
     });
   }
   if (method === "GET" && key === "audit") {
     const estimateId = new URL(request.url).searchParams.get("estimateId") ?? undefined;
-    return json({ events: listAudit(estimateId) });
+    return json({ events: await listAudit(user.organizationId, estimateId) });
   }
-  if (method === "GET" && key === "exchange-rates") return json({ rates: getRates() });
-  if (method === "GET" && key === "clients") return json({ clients: listClients() });
-  if (method === "GET" && key === "reports") return json({ reports: listReports() });
-  if (method === "GET" && key === "dashboard") return json(dashboard());
+  if (method === "GET" && key === "exchange-rates") return json({ rates: await getRates(user.organizationId) });
+  if (method === "GET" && key === "clients") return json({ clients: await listClients(user.organizationId) });
+  if (method === "GET" && key === "reports") return json({ reports: await listReports(user.organizationId) });
+  if (method === "GET" && key === "dashboard") return json(await dashboard(user.organizationId));
 
   if (method === "POST" && key === "estimates") {
+    if (!canSubmitEstimate(user.role)) return json({ error: "You do not have access to create estimates." }, 403);
     const body = await readJson(request);
     const title = typeof body?.title === "string" ? body.title.trim() : "";
     const clientName = typeof body?.clientName === "string" ? body.clientName.trim() : "";
     if (!title) return json({ error: "Enter the RFQ title.", field: "title" }, 400);
     if (!clientName) return json({ error: "Enter the client name.", field: "clientName" }, 400);
     const description = typeof body?.description === "string" ? body.description : "";
-    return json({ estimate: createEstimate({ title, clientName, description }, user) }, 201);
+    return json({ estimate: await createEstimate({ title, clientName, description }, user) }, 201);
   }
 
   if (method === "PUT" && key === "exchange-rates") {
     if (!canManageRates) return json({ error: "You do not have access to this action." }, 403);
     const body = (await readJson(request)) as Partial<ExchangeRateTable> | null;
     log.info("v1.exchange_rates.updated", { userId: user.id });
-    return json({ rates: saveRates(body ?? {}) });
+    return json({ rates: await saveRates(user.organizationId, body ?? {}) });
   }
 
   const estimateMatch = key.match(/^estimates\/([^/]+)$/);
   if (method === "GET" && estimateMatch) {
-    const estimate = getEstimate(estimateMatch[1]);
+    const estimate = await getEstimate(estimateMatch[1], user.organizationId);
     if (!estimate) return json({ error: "Estimate not found." }, 404);
     return json({ estimate });
   }
 
   const sheetMatch = key.match(/^estimates\/([^/]+)\/sheet$/);
   if (sheetMatch && method === "GET") {
-    const sheet = getSheetView(sheetMatch[1]);
+    const sheet = await getSheetView(sheetMatch[1], user.organizationId);
     if (!sheet) return json({ error: "Estimate not found." }, 404);
     return json(sheet);
   }
   if (sheetMatch && method === "PUT") {
+    const estimate = await getEstimate(sheetMatch[1], user.organizationId);
+    if (!estimate) return json({ error: "Estimate not found." }, 404);
+    if (!isOrgAdmin(user.role) && user.role !== "Line Manager" && estimate.originator !== user.name) {
+      return json({ error: "You do not have access to edit this estimate." }, 403);
+    }
     const body = await readJson(request);
     if (!Array.isArray(body?.lines)) return json({ error: "Send the sheet lines." }, 400);
-    const result = saveSheet(sheetMatch[1], body.lines as Partial<SheetLine>[], user);
-    if ("error" in result) return json({ error: result.error }, result.status);
+    const result = await saveSheet(sheetMatch[1], body.lines as Partial<SheetLine>[], user);
+    if ("error" in result) return json({ error: result.error }, result.error === "Estimate not found." ? 404 : 409);
     return json(result.sheet);
   }
 
   const submitMatch = key.match(/^estimates\/([^/]+)\/submit$/);
   if (method === "POST" && submitMatch) {
-    const result = submitEstimate(submitMatch[1], user);
-    if ("error" in result) return json({ error: result.error }, result.status);
+    if (!canSubmitEstimate(user.role)) return json({ error: "You do not have access to submit estimates." }, 403);
+    const estimate = await getEstimate(submitMatch[1], user.organizationId);
+    if (!estimate) return json({ error: "Estimate not found." }, 404);
+    if (!isOrgAdmin(user.role) && estimate.originator !== user.name) {
+      return json({ error: "You do not have access to submit this estimate." }, 403);
+    }
+    const result = await submitEstimate(submitMatch[1], user);
+    if ("error" in result) return json({ error: result.error }, result.error === "Estimate not found." ? 404 : 400);
     return json(result.sheet);
   }
 
@@ -212,8 +235,8 @@ async function handle(request: Request, context: Context) {
     const body = await readJson(request);
     const decision = body?.decision === "approved" || body?.decision === "returned" ? body.decision : null;
     if (!decision) return json({ error: "Decision must be approved or returned." }, 400);
-    const result = decideEstimate(decisionMatch[1], decision, user);
-    if ("error" in result) return json({ error: result.error }, result.status);
+    const result = await decideEstimate(decisionMatch[1], decision, user);
+    if ("error" in result) return json({ error: result.error }, result.error === "Estimate not found." ? 404 : 409);
     return json(result.sheet);
   }
 

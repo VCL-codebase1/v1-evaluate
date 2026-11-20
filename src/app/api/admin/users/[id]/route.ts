@@ -42,7 +42,7 @@ export async function PATCH(request: Request, context: Context) {
     if (body.resetPassword.length < 8) {
       return NextResponse.json({ error: "Password must be at least 8 characters." }, { status: 400 });
     }
-    patch.resetPassword = body.resetPassword;
+    patch.mustChangePassword = true;
   }
   if (typeof body?.mustChangePassword === "boolean") patch.mustChangePassword = body.mustChangePassword;
 

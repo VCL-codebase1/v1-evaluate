@@ -1,1 +1,7 @@
-export { createEstimate, getDashboardSummary, listEstimates } from "@/lib/db";
+export {
+  computeDashboardSummary,
+  createEstimate,
+  getDashboardSummary,
+  getLatestEstimateId,
+  listEstimates,
+} from "@/lib/db";

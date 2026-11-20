@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { DashboardView } from "@/components/dashboard/dashboard-view";
-import { getDashboardSummary, listEstimates } from "@/lib/estimates";
+import { computeDashboardSummary, listEstimates } from "@/lib/estimates";
 import { getSession } from "@/lib/session";
 import { WORKFLOW_STEPS } from "@/lib/constants";
 import type { DashboardSummary, EstimateRecord } from "@/lib/types";
@@ -25,17 +25,26 @@ const EMPTY_ESTIMATES: EstimateRecord[] = [];
 
 async function DashboardSession() {
   const session = await getSession();
-  if (!session) return <DashboardView role="Representative" summary={EMPTY_SUMMARY} estimates={EMPTY_ESTIMATES} />;
-  const [summary, estimates] = await Promise.all([
-    getDashboardSummary(session.organizationId),
-    listEstimates(session.organizationId),
-  ]);
-  return <DashboardView role={session.role} summary={summary} estimates={estimates} />;
+  if (!session) {
+    return <DashboardView role="Representative" summary={EMPTY_SUMMARY} estimates={EMPTY_ESTIMATES} />;
+  }
+  const estimates = await listEstimates(session.organizationId);
+  return (
+    <DashboardView
+      role={session.role}
+      summary={computeDashboardSummary(estimates)}
+      estimates={estimates}
+    />
+  );
 }
 
 export default function DashboardPage() {
   return (
-    <Suspense fallback={<DashboardView role="Representative" summary={EMPTY_SUMMARY} estimates={EMPTY_ESTIMATES} />}>
+    <Suspense
+      fallback={
+        <DashboardView role="Representative" summary={EMPTY_SUMMARY} estimates={EMPTY_ESTIMATES} />
+      }
+    >
       <DashboardSession />
     </Suspense>
   );

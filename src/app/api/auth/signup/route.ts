@@ -90,20 +90,24 @@ export async function POST(request: Request) {
   try {
     const org = await withTimeout(createOrganization({ name: organizationName }), 15000, "Organization creation");
     organizationId = org.id;
-    await withTimeout(ensureDefaultExchangeRates(org.id), 15000, "Organization setup");
 
     const admin = createSupabaseAdminClient();
-    const { data: created, error: createError } = await withTimeout(
-      admin.auth.admin.createUser({
+    // The workspace defaults and Supabase identity are independent after the
+    // organization exists. Run them together so signup doesn't add a database
+    // roundtrip to the critical path.
+    const [ratesResult, authResult] = await Promise.allSettled([
+      withTimeout(ensureDefaultExchangeRates(org.id), 15000, "Organization setup"),
+      withTimeout(admin.auth.admin.createUser({
         email,
         password,
         email_confirm: true,
         user_metadata: { name, organization_id: org.id, organization_name: org.name },
         app_metadata: { role: "Super Admin", organization_id: org.id },
-      }),
-      20000,
-      "Account provisioning",
-    );
+      }), 20000, "Account provisioning"),
+    ]);
+
+    if (authResult.status === "rejected") throw authResult.reason;
+    const { data: created, error: createError } = authResult.value;
 
     if (createError) {
       throw new Error(createError.message || "Unable to create account.");
@@ -113,13 +117,14 @@ export async function POST(request: Request) {
     createdSupabaseUser = Boolean(authUserId);
     if (!authUserId) throw new Error("Unable to create account.");
 
+    if (ratesResult.status === "rejected") throw ratesResult.reason;
+
     await withTimeout(
       createUser({
         email,
         name,
         role: "Super Admin" as Role,
         organizationId: org.id,
-        password,
         authUserId,
         mustChangePassword: false,
         isActive: true,

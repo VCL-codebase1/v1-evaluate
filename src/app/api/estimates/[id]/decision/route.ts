@@ -19,7 +19,7 @@ export async function POST(request: Request, context: Context) {
     return NextResponse.json({ error: "Choose approved or returned." }, { status: 400 });
   }
 
-  const result = await decideSheet(id, auth.session.organizationId, body.decision, auth.session.role);
+  const result = await decideSheet(id, auth.session.organizationId, body.decision, auth.session.name, auth.session.role);
   if ("error" in result) {
     const status = result.error === "Estimate not found." ? 404 : 409;
     return NextResponse.json({ error: result.error }, { status });

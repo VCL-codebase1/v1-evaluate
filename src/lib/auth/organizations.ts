@@ -59,10 +59,7 @@ export async function ensureDefaultExchangeRates(organizationId: string) {
   await ensureDb();
   await sql()`
     insert into exchange_rates(organization_id, currency, rate) values
-      (${organizationId}, 'NGN', 1),
-      (${organizationId}, 'USD', 1500),
-      (${organizationId}, 'EUR', 1620),
-      (${organizationId}, 'GBP', 1900)
+      (${organizationId}, 'NGN', 1)
     on conflict (organization_id, currency) do nothing
   `;
 }

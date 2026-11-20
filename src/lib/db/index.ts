@@ -3,12 +3,14 @@
  * Uses Postgres (DATABASE_URL) for persistence. Callers must await these functions.
  */
 export {
+  computeDashboardSummary,
   createEstimate,
   decideSheet,
   deleteEstimate,
   getDashboardSummary,
   getEstimate,
   getExchangeRates,
+  getLatestEstimateId,
   getSheet,
   listAudit,
   listClients,

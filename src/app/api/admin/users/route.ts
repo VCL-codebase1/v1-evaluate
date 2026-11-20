@@ -79,8 +79,31 @@ export async function POST(request: Request) {
         log.warn("admin.user.supabase_create_failed", { by: session.email, email, message: msg });
         return NextResponse.json({ error: msg || "Unable to provision Supabase auth user." }, { status: 400 });
       }
-      const { data: listData } = await admin.auth.admin.listUsers({ page: 1, perPage: 200 });
-      const found = listData?.users?.find((u) => (u.email || "").toLowerCase() === email);
+      let found = null;
+      for (let page = 1; page <= 100; page += 1) {
+        const { data: listData, error: listError } = await admin.auth.admin.listUsers({ page, perPage: 200 });
+        if (listError) throw new Error("Unable to verify the existing account organization.");
+        found = listData?.users?.find((u) => (u.email || "").toLowerCase() === email) ?? null;
+        if (found || (listData?.users?.length ?? 0) < 200) break;
+      }
+      if (!found && !existingProfile?.authUserId) {
+        return NextResponse.json(
+          { error: "The existing account could not be safely linked. Contact your administrator." },
+          { status: 409 },
+        );
+      }
+      // Supabase Auth identities are global. Reusing an identity from another
+      // organization would let this tenant overwrite its role and tenant claim.
+      if (
+        found &&
+        found.id !== existingProfile?.authUserId &&
+        found.app_metadata?.organization_id !== session.organizationId
+      ) {
+        return NextResponse.json(
+          { error: "This email already belongs to an account outside your organization." },
+          { status: 409 },
+        );
+      }
       authUserId = found?.id ?? existingProfile?.authUserId ?? null;
       if (authUserId) {
         const { error: updErr } = await admin.auth.admin.updateUserById(authUserId, {
@@ -104,7 +127,6 @@ export async function POST(request: Request) {
           role,
           isActive: true,
           authUserId,
-          resetPassword: password,
           mustChangePassword,
         },
         session.organizationId,
@@ -115,7 +137,6 @@ export async function POST(request: Request) {
         name,
         role,
         organizationId: session.organizationId,
-        password,
         authUserId,
         mustChangePassword,
         isActive: true,

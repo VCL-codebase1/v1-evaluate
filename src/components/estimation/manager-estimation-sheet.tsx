@@ -45,6 +45,7 @@ export function ManagerEstimationSheet({ estimateId }: { estimateId: string }) {
   const [message, setMessage] = useState("");
   const priced = useMemo(() => priceManagerLines(lines, rates), [lines, rates]);
   const grand = priced.reduce((sum, line) => sum + line.extendedNgn, 0);
+  const missingRates = [...new Set(lines.filter((line) => line.currency !== "NGN" && rates[line.currency] <= 0).map((line) => line.currency))];
 
   useEffect(() => {
     let active = true;
@@ -81,6 +82,10 @@ export function ManagerEstimationSheet({ estimateId }: { estimateId: string }) {
 
   async function save() {
     setMessage("");
+    if (missingRates.length > 0) {
+      setMessage(`Set an NGN exchange rate for ${missingRates.join(", ")} before saving.`);
+      return;
+    }
     const response = await fetch(`/api/estimates/${estimateId}/sheet`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -94,13 +99,14 @@ export function ManagerEstimationSheet({ estimateId }: { estimateId: string }) {
     <div className="page-stack">
       <div className="page-heading">
         <h1 className="text-page-title">Estimation sheet</h1>
-        <button type="button" className="add-item-btn" onClick={() => void save()}>
+        <button type="button" className="add-item-btn" onClick={() => void save()} disabled={missingRates.length > 0}>
           Save sheet
         </button>
       </div>
       <p className="manager-note">
         Local items skip foreign charges. Swipe the sheet sideways for manufacturer, freight, and the NGN totals.
       </p>
+      {missingRates.length > 0 ? <p className="text-error" role="alert">Set an NGN exchange rate for {missingRates.join(", ")} in Exchange rates before saving.</p> : null}
       {message ? <p className="sheet-message">{message}</p> : null}
 
       <section className="surface-card panel-card manager-sheet">

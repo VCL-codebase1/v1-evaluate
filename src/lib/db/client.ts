@@ -42,6 +42,11 @@ export function sql() {
       connect_timeout,
       max_lifetime,
       prepare,
+      // Prevent hung queries from stalling serverless requests/functions.
+      connection: {
+        statement_timeout: intFromEnv("DB_STATEMENT_TIMEOUT_MS", 15000),
+        idle_in_transaction_session_timeout: intFromEnv("DB_IDLE_IN_TX_TIMEOUT_MS", 15000),
+      },
     });
   }
   return globalForSql.__v11Sql;

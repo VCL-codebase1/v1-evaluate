@@ -1,10 +1,10 @@
 import { cache } from "react";
 import type { User } from "@supabase/supabase-js";
-import { listEstimates } from "@/lib/db";
+import { getLatestEstimateId } from "@/lib/estimates";
 import {
   ensureUserProfile,
-  getUserProfileByAuthId,
-  type DbUser,
+  getSessionProfileByAuthId,
+  type SessionProfile,
 } from "@/lib/auth/users";
 import { getOrganizationById } from "@/lib/auth/organizations";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -19,17 +19,15 @@ export type AppSession = SessionUser & {
 
 async function defaultEstimateId(organizationId: string) {
   try {
-    const estimates = await listEstimates(organizationId);
-    return estimates[0]?.id ?? "EST-2026-001";
+    return (await getLatestEstimateId(organizationId)) ?? "";
   } catch {
-    return "EST-2026-001";
+    return "";
   }
 }
 
 export function sessionUserFromProfile(
-  profile: DbUser,
-  estimateId?: string,
-  organizationName = "Organization",
+  profile: SessionProfile,
+  estimateId = "",
 ): AppSession {
   return {
     userId: profile.id,
@@ -37,10 +35,10 @@ export function sessionUserFromProfile(
     email: profile.email,
     role: profile.role,
     name: profile.name,
-    estimateId: estimateId ?? "EST-2026-001",
+    estimateId,
     version: "v1",
     organizationId: profile.organizationId,
-    organizationName,
+    organizationName: profile.organizationName,
     isActive: profile.isActive,
     mustChangePassword: profile.mustChangePassword,
   };
@@ -54,14 +52,14 @@ async function resolveSession(): Promise<AppSession | null> {
 
   if (!user) return null;
 
-  let profile = await getUserProfileByAuthId(user.id);
+  let profile = await getSessionProfileByAuthId(user.id);
   if (!profile) {
     // Link/create an app profile on first Supabase-authenticated access when possible.
     // For multitenant signups the organization/user profile should already exist;
     // this fallback only applies when org context is explicitly provided in metadata.
     const orgId = typeof user.app_metadata?.organization_id === "string" ? user.app_metadata.organization_id : "";
     if (orgId) {
-      profile = await ensureUserProfile({
+      const ensured = await ensureUserProfile({
         authUserId: user.id,
         email: user.email ?? "",
         name:
@@ -71,15 +69,27 @@ async function resolveSession(): Promise<AppSession | null> {
         organizationId: orgId,
         isActive: true,
       });
+      if (ensured) {
+        const org = await getOrganizationById(ensured.organizationId).catch(() => null);
+        profile = {
+          id: ensured.id,
+          organizationId: ensured.organizationId,
+          authUserId: ensured.authUserId,
+          email: ensured.email,
+          name: ensured.name,
+          role: ensured.role,
+          isActive: ensured.isActive,
+          mustChangePassword: ensured.mustChangePassword,
+          organizationName: org?.name ?? "Organization",
+        };
+      }
     }
   }
 
-  if (!profile) return null;
-  if (!profile.isActive) return null;
+  if (!profile || !profile.isActive) return null;
 
-  const org = await getOrganizationById(profile.organizationId).catch(() => null);
   const estimateId = await defaultEstimateId(profile.organizationId);
-  return sessionUserFromProfile(profile, estimateId, org?.name ?? "Organization");
+  return sessionUserFromProfile(profile, estimateId);
 }
 
 export const getSession = cache(async (): Promise<AppSession | null> => {

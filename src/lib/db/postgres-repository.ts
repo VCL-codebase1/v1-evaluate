@@ -36,7 +36,7 @@ function toNum(value: unknown): number | null {
 
 function mapEstimate(row: Record<string, unknown>): EstimateRecord {
   const attachments = Array.isArray(row.attachments)
-    ? (row.attachments.filter((v): v is string => typeof v === "string"))
+    ? row.attachments.filter((v): v is string => typeof v === "string")
     : [];
   return {
     id: String(row.id),
@@ -55,6 +55,7 @@ function mapEstimate(row: Record<string, unknown>): EstimateRecord {
     mode: String(row.mode ?? "Air freight"),
     status: String(row.status ?? "pending") as EstimateStatus,
     reviewStage: String(row.review_stage ?? "draft") as ReviewStage,
+    workflowStep: String(row.workflow_step ?? "created"),
     version: String(row.version ?? "v1"),
     submittedAt: toIso(row.submitted_at),
     submittedBy: row.submitted_by ? String(row.submitted_by) : null,
@@ -113,6 +114,12 @@ export async function listEstimates(organizationId: string) {
   await ensureDb();
   const rows = await sql()`select * from estimates where organization_id = ${organizationId} order by created_at desc`;
   return rows.map((r) => mapEstimate(r as Record<string, unknown>));
+}
+
+export async function getLatestEstimateId(organizationId: string) {
+  await ensureDb();
+  const rows = await sql()`select id from estimates where organization_id = ${organizationId} order by created_at desc limit 1`;
+  return rows[0] ? String((rows[0] as { id: unknown }).id) : null;
 }
 
 export async function getEstimate(id: string, organizationId: string) {
@@ -259,6 +266,14 @@ function cleanLine(line: Partial<SheetLine>, index: number): SheetLine | null {
   };
 }
 
+function requireConfiguredRates(lines: SheetLine[], rates: ExchangeRateTable) {
+  const currencies = [...new Set(lines.map((line) => line.currency))];
+  const missing = currencies.filter((currency) => currency !== "NGN" && (!rates[currency] || rates[currency] <= 0));
+  if (missing.length > 0) {
+    throw new Error(`Configure NGN exchange rates for ${missing.join(", ")} before saving this estimate.`);
+  }
+}
+
 async function syncEstimate(id: string, organizationId: string, totalNgn: number, stage: ReviewStage) {
   const status = stage === "approved" ? "approved" : stage === "returned" ? "rejected" : "pending";
   await sql()`
@@ -284,12 +299,15 @@ export async function saveSheet(
   const nextLines = lines
     .map((line, index) => cleanLine(line, index))
     .filter((line): line is SheetLine => Boolean(line));
+  const rates = await getExchangeRates(organizationId);
+  requireConfiguredRates(nextLines, rates);
   const previousIds = new Set(current.lines.map((line) => line.id));
   const nextStage: ReviewStage = current.reviewStage === "returned" ? "draft" : current.reviewStage;
+  const sheetVersion = current.version || version;
 
   await sql()`
     insert into estimate_sheets(estimate_id, version, review_stage, lines, submitted_at, submitted_by, updated_at)
-    values (${id}, ${current.version || version}, ${nextStage}, ${sql().json(nextLines)}::jsonb, ${current.submittedAt}, ${current.submittedBy}, now())
+    values (${id}, ${sheetVersion}, ${nextStage}, ${sql().json(nextLines)}::jsonb, ${current.submittedAt}, ${current.submittedBy}, now())
     on conflict (estimate_id) do update set
       version = excluded.version,
       review_stage = excluded.review_stage,
@@ -299,28 +317,34 @@ export async function saveSheet(
       updated_at = now()
   `;
 
-  const rates = await getExchangeRates(organizationId);
   const summary = summarizeSheet(nextLines, rates);
   await syncEstimate(id, organizationId, summary.grandTotalNgn, nextStage);
 
-  const added = nextLines.filter((line) => line.item.trim() && !previousIds.has(line.id));
-  if (added.length === 0) {
-    await recordAudit({
-      organizationId,
-      actor,
-      action: "sheet.saved",
-      estimateId: id,
-      detail: `${summary.itemCount} item${summary.itemCount === 1 ? "" : "s"}`,
-    });
-  } else {
-    for (let i = 0; i < added.length; i += 1) {
-      await recordAudit({ organizationId, actor, action: "item.added", estimateId: id, detail: "Item added" });
-    }
-  }
+  const addedCount = nextLines.filter((line) => line.item.trim() && !previousIds.has(line.id)).length;
+  const detail =
+    addedCount > 0
+      ? `${summary.itemCount} item${summary.itemCount === 1 ? "" : "s"} (${addedCount} added)`
+      : `${summary.itemCount} item${summary.itemCount === 1 ? "" : "s"}`;
+  await recordAudit({
+    organizationId,
+    actor,
+    action: "sheet.saved",
+    estimateId: id,
+    detail,
+  });
 
-  const sheet = await sheetResponse(id, organizationId, version);
-  if (!sheet) return { error: "Estimate not found." as const };
-  return { sheet };
+  return {
+    sheet: {
+      estimateId: id,
+      version: sheetVersion,
+      reviewStage: nextStage,
+      lines: nextLines,
+      submittedAt: current.submittedAt,
+      submittedBy: current.submittedBy,
+      rates,
+      summary,
+    },
+  };
 }
 
 export async function submitSheet(id: string, organizationId: string, actor: string, version = "v1") {
@@ -335,10 +359,14 @@ export async function submitSheet(id: string, organizationId: string, actor: str
     return { error: "This estimate has already been submitted." as const };
   }
 
+  const rates = await getExchangeRates(organizationId);
+  requireConfiguredRates(named, rates);
+
   const submittedAt = new Date().toISOString();
+  const sheetVersion = current.version || version;
   await sql()`
     insert into estimate_sheets(estimate_id, version, review_stage, lines, submitted_at, submitted_by, updated_at)
-    values (${id}, ${current.version || version}, ${"in_review"}, ${sql().json(current.lines)}::jsonb, ${submittedAt}, ${actor}, now())
+    values (${id}, ${sheetVersion}, ${"in_review"}, ${sql().json(current.lines)}::jsonb, ${submittedAt}, ${actor}, now())
     on conflict (estimate_id) do update set
       version = excluded.version,
       review_stage = excluded.review_stage,
@@ -346,7 +374,6 @@ export async function submitSheet(id: string, organizationId: string, actor: str
       submitted_by = excluded.submitted_by,
       updated_at = now()
   `;
-  const rates = await getExchangeRates(organizationId);
   const summary = summarizeSheet(current.lines, rates);
   await syncEstimate(id, organizationId, summary.grandTotalNgn, "in_review");
   await recordAudit({
@@ -354,11 +381,21 @@ export async function submitSheet(id: string, organizationId: string, actor: str
     actor,
     action: "sheet.submitted",
     estimateId: id,
-    detail: `${current.version || version} sent for line manager review`,
+    detail: `${sheetVersion} sent for line manager review`,
   });
-  const sheet = await sheetResponse(id, organizationId, version);
-  if (!sheet) return { error: "Estimate not found." as const };
-  return { sheet };
+
+  return {
+    sheet: {
+      estimateId: id,
+      version: sheetVersion,
+      reviewStage: "in_review" as ReviewStage,
+      lines: current.lines,
+      submittedAt,
+      submittedBy: actor,
+      rates,
+      summary,
+    },
+  };
 }
 
 export async function decideSheet(
@@ -366,20 +403,39 @@ export async function decideSheet(
   organizationId: string,
   decision: "approved" | "returned",
   actor: string,
+  actorRole: string,
 ) {
   await ensureDb();
   // Verify org ownership
   const owned = await getEstimate(id, organizationId);
   if (!owned) return { error: "Estimate not found." as const };
 
+  const estimateRows = await sql()`
+    select workflow_step from estimates where id = ${id} and organization_id = ${organizationId} limit 1
+  `;
+  const workflowStep = String(estimateRows[0]?.workflow_step ?? "created");
+  const requiredRole = workflowStep === "created" ? "Line Manager" : "Sales Director";
+  if (actorRole !== requiredRole && actorRole !== "Admin" && actorRole !== "Super Admin") {
+    return { error: `${requiredRole} must decide this step.` as const };
+  }
+
   const currentRows = await sql()`select * from estimate_sheets where estimate_id = ${id} limit 1`;
   const current = currentRows[0] ? mapSheet(currentRows[0] as Record<string, unknown>) : null;
   if (!current || current.reviewStage !== "in_review") {
     return { error: "There is no estimate waiting for a decision." as const };
   }
-  const nextStage: ReviewStage = decision === "approved" ? "approved" : "returned";
+  const isFinalApproval = decision === "approved" && workflowStep === "sales_director";
+  const nextStage: ReviewStage = decision === "returned" ? "returned" : isFinalApproval ? "approved" : "in_review";
+  const nextWorkflowStep = decision === "returned" ? "created" : isFinalApproval ? "final" : "sales_director";
   await sql()`
     update estimate_sheets set review_stage = ${nextStage}, updated_at = now() where estimate_id = ${id}
+  `;
+  await sql()`
+    update estimates
+    set workflow_step = ${nextWorkflowStep}, review_stage = ${nextStage},
+        status = ${nextStage === "approved" ? "approved" : nextStage === "returned" ? "rejected" : "pending"},
+        updated_at = now()
+    where id = ${id} and organization_id = ${organizationId}
   `;
   const rates = await getExchangeRates(organizationId);
   const summary = summarizeSheet(current.lines, rates);
@@ -389,11 +445,23 @@ export async function decideSheet(
     actor,
     action: decision === "approved" ? "sheet.approved" : "sheet.returned",
     estimateId: id,
-    detail: current.version,
+    detail: decision === "approved"
+      ? isFinalApproval ? "Finally approved by Sales Director" : "Approved by Line Manager; sent to Sales Director"
+      : `Returned by ${actorRole}`,
   });
-  const sheet = await sheetResponse(id, organizationId);
-  if (!sheet) return { error: "Estimate not found." as const };
-  return { sheet };
+
+  return {
+    sheet: {
+      estimateId: id,
+      version: current.version,
+      reviewStage: nextStage,
+      lines: current.lines,
+      submittedAt: current.submittedAt,
+      submittedBy: current.submittedBy,
+      rates,
+      summary,
+    },
+  };
 }
 
 export async function saveExchangeRates(organizationId: string, patch: Partial<ExchangeRateTable>) {
@@ -404,12 +472,18 @@ export async function saveExchangeRates(organizationId: string, patch: Partial<E
     if (typeof next === "number" && Number.isFinite(next) && next > 0) rates[currency] = next;
   });
   rates.NGN = 1;
-  for (const [currency, rate] of Object.entries(rates)) {
-    await sql()`
-      insert into exchange_rates(organization_id, currency, rate) values (${organizationId}, ${currency}, ${rate})
-      on conflict (organization_id, currency) do update set rate = excluded.rate
-    `;
+  const missing = (["USD", "EUR", "GBP"] as const).filter((currency) => rates[currency] <= 0);
+  if (missing.length > 0) {
+    throw new Error(`Enter a positive NGN exchange rate for ${missing.join(", ")}.`);
   }
+  await sql()`
+    insert into exchange_rates(organization_id, currency, rate) values
+      (${organizationId}, 'NGN', ${rates.NGN}),
+      (${organizationId}, 'USD', ${rates.USD}),
+      (${organizationId}, 'EUR', ${rates.EUR}),
+      (${organizationId}, 'GBP', ${rates.GBP})
+    on conflict (organization_id, currency) do update set rate = excluded.rate
+  `;
   return { ...rates };
 }
 
@@ -452,10 +526,8 @@ export async function listReports(organizationId: string) {
     }));
 }
 
-export async function getDashboardSummary(organizationId: string): Promise<DashboardSummary> {
-  const estimates = await listEstimates(organizationId);
+export function computeDashboardSummary(estimates: EstimateRecord[]): DashboardSummary {
   const count = (status: EstimateStatus) => estimates.filter((estimate) => estimate.status === status).length;
-
   return {
     steps: WORKFLOW_STEPS,
     progress: estimates.length === 0 ? 3 : 28,
@@ -466,4 +538,12 @@ export async function getDashboardSummary(organizationId: string): Promise<Dashb
       { key: "rejected", label: "Returned / Rejected", value: count("rejected"), tone: "red" },
     ],
   };
+}
+
+export async function getDashboardSummary(
+  organizationId: string,
+  prefetched?: EstimateRecord[],
+): Promise<DashboardSummary> {
+  const estimates = prefetched ?? (await listEstimates(organizationId));
+  return computeDashboardSummary(estimates);
 }

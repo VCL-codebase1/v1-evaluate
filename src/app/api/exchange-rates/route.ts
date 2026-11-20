@@ -19,7 +19,18 @@ export async function PUT(request: Request) {
   }
 
   const body = (await request.json().catch(() => null)) as { rates?: Partial<ExchangeRateTable> } | null;
-  const rates = await saveExchangeRates(auth.session.organizationId, body?.rates ?? {});
+  if (!body?.rates || typeof body.rates !== "object") {
+    return NextResponse.json({ error: "Enter exchange rates for USD, EUR, and GBP." }, { status: 400 });
+  }
+  let rates: ExchangeRateTable;
+  try {
+    rates = await saveExchangeRates(auth.session.organizationId, body.rates);
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Unable to save exchange rates." },
+      { status: 400 },
+    );
+  }
   log.info("exchange_rates.updated", { by: auth.session.email, role: auth.session.role, organizationId: auth.session.organizationId });
   return NextResponse.json({ rates });
 }
