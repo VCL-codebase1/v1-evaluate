@@ -1,9 +1,16 @@
 import { NextResponse } from "next/server";
-import { createPasswordResetToken } from "@/lib/auth/password-reset";
 import { checkThrottle, registerFailure, throttleSubject } from "@/lib/auth/throttle";
 import { log, requestMeta } from "@/lib/observability/logger";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function appBaseUrl(request: Request) {
+  const envBase = process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_APP_URL;
+  if (envBase) return envBase.replace(/\/$/, "");
+  const url = new URL(request.url);
+  return `${url.protocol}//${url.host}`;
+}
 
 export async function POST(request: Request) {
   const body = (await request.json().catch(() => null)) as { email?: string } | null;
@@ -31,7 +38,6 @@ export async function POST(request: Request) {
 
   const [ipCheck, emailCheck] = await Promise.all([checkThrottle(ipCfg), checkThrottle(emailCfg)]);
   if (ipCheck.blocked || emailCheck.blocked) {
-    // Generic success to avoid enumeration; log throttling.
     log.warn("auth.password_reset.throttled", { ip: meta.ip });
     return NextResponse.json({ ok: true });
   }
@@ -39,7 +45,15 @@ export async function POST(request: Request) {
   await Promise.all([registerFailure(ipCfg), registerFailure(emailCfg)]);
 
   try {
-    await createPasswordResetToken(email, { ip: meta.ip, userAgent: meta.userAgent });
+    const supabase = await createSupabaseServerClient();
+    const redirectTo = `${appBaseUrl(request)}/reset-password`;
+    const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
+    if (error) {
+      // Keep response generic; log for operators.
+      log.warn("auth.password_reset.request_failed", { ip: meta.ip, message: error.message });
+    } else {
+      log.info("auth.password_reset.requested", { ip: meta.ip, delivery: "supabase" });
+    }
   } catch (error) {
     log.error("auth.password_reset.error", { message: error instanceof Error ? error.message : String(error) });
   }

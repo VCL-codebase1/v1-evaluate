@@ -1,11 +1,17 @@
 import { NextResponse } from "next/server";
-import { consumePasswordResetToken } from "@/lib/auth/password-reset";
 import { checkThrottle, registerFailure, throttleSubject } from "@/lib/auth/throttle";
+import { getUserProfileByAuthId, setPassword } from "@/lib/auth/users";
 import { log, requestMeta } from "@/lib/observability/logger";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export async function POST(request: Request) {
-  const body = (await request.json().catch(() => null)) as { token?: string; password?: string } | null;
+  const body = (await request.json().catch(() => null)) as {
+    token?: string;
+    password?: string;
+    code?: string;
+  } | null;
   const token = typeof body?.token === "string" ? body.token : "";
+  const code = typeof body?.code === "string" ? body.code : "";
   const password = typeof body?.password === "string" ? body.password : "";
 
   const meta = requestMeta(request);
@@ -25,19 +31,52 @@ export async function POST(request: Request) {
     );
   }
 
-  if (!token || password.length < 8) {
+  if (password.length < 8) {
     await registerFailure(ipCfg);
-    return NextResponse.json({ error: "Reset link is invalid or has expired." }, { status: 400 });
+    return NextResponse.json({ error: "Password must be at least 8 characters." }, { status: 400 });
   }
 
   try {
-    const result = await consumePasswordResetToken(token, password);
-    if (!result.ok) {
-      await registerFailure(ipCfg);
-      log.warn("auth.password_reset.consume_failed", { ip: meta.ip });
-      return NextResponse.json({ error: result.error || "Reset link is invalid or has expired." }, { status: 400 });
+    const supabase = await createSupabaseServerClient();
+
+    // Support PKCE code flow (recommended) and legacy token_hash flow if provided.
+    if (code) {
+      const { error } = await supabase.auth.exchangeCodeForSession(code);
+      if (error) {
+        await registerFailure(ipCfg);
+        log.warn("auth.password_reset.exchange_failed", { ip: meta.ip, message: error.message });
+        return NextResponse.json({ error: "Reset link is invalid or has expired." }, { status: 400 });
+      }
+    } else if (token) {
+      const { error } = await supabase.auth.verifyOtp({ token_hash: token, type: "recovery" });
+      if (error) {
+        await registerFailure(ipCfg);
+        log.warn("auth.password_reset.verify_failed", { ip: meta.ip, message: error.message });
+        return NextResponse.json({ error: "Reset link is invalid or has expired." }, { status: 400 });
+      }
+    } else {
+      // Allow recovery session already established in browser (e.g. hash-based redirect handled client-side).
+      const { data } = await supabase.auth.getUser();
+      if (!data.user) {
+        await registerFailure(ipCfg);
+        return NextResponse.json({ error: "Reset link is invalid or has expired." }, { status: 400 });
+      }
     }
-    log.info("auth.password_reset.consume_success", { ip: meta.ip });
+
+    const { data: userData, error: updateError } = await supabase.auth.updateUser({ password });
+    if (updateError || !userData.user) {
+      await registerFailure(ipCfg);
+      log.warn("auth.password_reset.update_failed", { ip: meta.ip, message: updateError?.message });
+      return NextResponse.json({ error: "Unable to reset password." }, { status: 400 });
+    }
+
+    const profile = await getUserProfileByAuthId(userData.user.id);
+    if (profile) {
+      // Clear local lock/must-change flags and (best-effort) local hash marker; Supabase is source of truth.
+      await setPassword(profile.id, password, { mustChangePassword: false, revokeRefreshTokens: true });
+    }
+
+    log.info("auth.password_reset.completed", { ip: meta.ip, userId: profile?.id ?? null, provider: "supabase" });
     return NextResponse.json({ ok: true });
   } catch (error) {
     await registerFailure(ipCfg);

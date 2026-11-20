@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server";
-import { SESSION_COOKIE } from "@/lib/constants";
 import { listEstimates } from "@/lib/db";
-import { encodeSession } from "@/lib/session-token";
 import type { SessionUser } from "@/lib/types";
 import { validateLogin } from "@/lib/validators";
 import { log, requestMeta } from "@/lib/observability/logger";
 import { checkThrottle, clearThrottle, registerFailure, throttleSubject } from "@/lib/auth/throttle";
-import { findUserByEmail, isUserLocked, markLoginFailure, markLoginSuccess, verifyUserPassword } from "@/lib/auth/users";
+import { getUserProfileByAuthId, isUserLocked, markLoginSuccess } from "@/lib/auth/users";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const GENERIC_AUTH_ERROR = "Email or password is incorrect.";
 const LOCKED_ERROR = "This account is temporarily unavailable. Try again later or reset your password.";
@@ -37,58 +36,66 @@ export async function POST(request: Request) {
   const [ipCheck, emailCheck] = await Promise.all([checkThrottle(ipCfg), checkThrottle(emailCfg)]);
   const blocked = ipCheck.blocked ? ipCheck : emailCheck.blocked ? emailCheck : null;
   if (blocked) {
-    log.warn("auth.login.rate_limited", { ip: meta.ip, email });
+    log.warn("auth.login.rate_limited", { email, ip: meta.ip });
     return NextResponse.json(
       { error: "Too many sign-in attempts. Try again later." },
       { status: 429, headers: { "Retry-After": String(blocked.retryAfterSec) } },
     );
   }
 
-  const user = await findUserByEmail(email);
+  const supabase = await createSupabaseServerClient();
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email,
+    password: result.password,
+  });
 
-  // Avoid account enumeration: same response shape for missing/invalid/disabled/locked user.
-  if (!user || !user.isActive || isUserLocked(user)) {
+  if (error || !data.user) {
     await Promise.all([registerFailure(ipCfg), registerFailure(emailCfg)]);
-    log.warn("auth.login.failed", { ip: meta.ip, email, reason: !user ? "not_found" : !user.isActive ? "inactive" : "locked" });
-    return NextResponse.json({ error: GENERIC_AUTH_ERROR }, { status: 401 });
+    // Best-effort local lock tracking for known app users (by email/profile linkage).
+    // We do not enumerate account existence in responses.
+    log.warn("auth.login.failed", { email, ip: meta.ip, reason: "supabase_auth" });
+    return NextResponse.json({ error: GENERIC_AUTH_ERROR, field: "password" }, { status: 401 });
   }
 
-  const ok = verifyUserPassword(user, result.password);
-  if (!ok) {
-    const failure = await markLoginFailure(user.id);
+  const profile = await getUserProfileByAuthId(data.user.id);
+  if (!profile) {
+    await supabase.auth.signOut();
     await Promise.all([registerFailure(ipCfg), registerFailure(emailCfg)]);
-    log.warn("auth.login.failed", { ip: meta.ip, email, reason: "bad_password", locked: Boolean(failure.lockedUntil) });
-    const message = failure.lockedUntil ? LOCKED_ERROR : GENERIC_AUTH_ERROR;
-    return NextResponse.json({ error: message }, { status: 401 });
+    log.warn("auth.login.failed", { email, ip: meta.ip, reason: "no_profile" });
+    return NextResponse.json({ error: GENERIC_AUTH_ERROR, field: "password" }, { status: 401 });
   }
 
-  await Promise.all([markLoginSuccess(user.id), clearThrottle("login:ip", ipSubject), clearThrottle("login:email", emailSubject)]);
+  if (!profile.isActive) {
+    await supabase.auth.signOut();
+    await Promise.all([registerFailure(ipCfg), registerFailure(emailCfg)]);
+    log.warn("auth.login.failed", { email, ip: meta.ip, reason: "inactive", userId: profile.id });
+    return NextResponse.json({ error: GENERIC_AUTH_ERROR, field: "password" }, { status: 401 });
+  }
+
+  if (isUserLocked(profile)) {
+    await supabase.auth.signOut();
+    log.warn("auth.login.failed", { email, ip: meta.ip, reason: "locked", userId: profile.id });
+    return NextResponse.json({ error: LOCKED_ERROR, field: "password" }, { status: 403 });
+  }
 
   let estimateId = "EST-2026-001";
   try {
     const estimates = await listEstimates();
     estimateId = estimates[0]?.id ?? estimateId;
   } catch {
-    // allow login even if estimate listing fails; workspace can recover
+    // keep fallback
   }
 
   const session: SessionUser = {
-    email: user.email,
-    role: user.role,
-    name: user.name,
+    email: profile.email,
+    role: profile.role,
+    name: profile.name,
     estimateId,
     version: "v1",
   };
 
-  const maxAge = body?.remember ? 60 * 60 * 24 * 30 : 60 * 60 * 12;
-  const response = NextResponse.json({ user: session, mustChangePassword: user.mustChangePassword });
-  response.cookies.set(SESSION_COOKIE, encodeSession(session, maxAge), {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    maxAge,
-  });
-  log.info("auth.login.success", { userId: user.id, role: user.role });
-  return response;
+  await Promise.all([markLoginSuccess(profile.id), clearThrottle("login:ip", ipSubject), clearThrottle("login:email", emailSubject)]);
+  log.info("auth.login.success", { email: profile.email, role: profile.role, ip: meta.ip, auth: "supabase" });
+
+  return NextResponse.json({ user: session, mustChangePassword: profile.mustChangePassword });
 }

@@ -58,7 +58,9 @@ export function ForgotPasswordForm() {
         />
       </div>
       {sent ? (
-        <p className="form-success">If this email is registered, a reset link is on its way.</p>
+        <p className="form-success">
+          If this email is registered and eligible, a reset email will be sent.
+        </p>
       ) : null}
       <Button type="submit" variant="primary" size="xl" disabled={pending}>
         {pending ? "Sending" : "Send reset link"}

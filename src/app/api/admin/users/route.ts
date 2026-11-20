@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
 import { canManageUsers, isRole } from "@/lib/auth/roles";
-import { createUser, listUsers } from "@/lib/auth/users";
+import { createUser, findUserByEmail, listUsers, updateUserAdmin } from "@/lib/auth/users";
 import { log } from "@/lib/observability/logger";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 export async function GET() {
   const session = await getSession();
@@ -33,6 +34,7 @@ export async function POST(request: Request) {
   const name = typeof body?.name === "string" ? body.name.trim() : "";
   const role = typeof body?.role === "string" ? body.role : "";
   const password = typeof body?.password === "string" ? body.password : "";
+  const mustChangePassword = body?.mustChangePassword ?? true;
 
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return NextResponse.json({ error: "Enter a valid email.", field: "email" }, { status: 400 });
@@ -44,15 +46,65 @@ export async function POST(request: Request) {
   }
 
   try {
-    const user = await createUser({
+    const admin = createSupabaseAdminClient();
+    const existingProfile = await findUserByEmail(email);
+
+    // Try to create Supabase auth user; if email already exists, reuse it.
+    const { data: created, error: createError } = await admin.auth.admin.createUser({
       email,
-      name,
-      role,
       password,
-      mustChangePassword: body?.mustChangePassword ?? true,
+      email_confirm: true,
+      user_metadata: { name },
+      app_metadata: { role },
     });
-    log.info("admin.user.created", { by: session.email, userId: user.id, role: user.role });
-    return NextResponse.json({ user }, { status: 201 });
+
+    let authUserId = created.user?.id ?? null;
+    if (createError) {
+      const msg = createError.message || "";
+      const isDuplicate = /already|exists|registered/i.test(msg);
+      if (!isDuplicate) {
+        log.warn("admin.user.supabase_create_failed", { by: session.email, email, message: msg });
+        return NextResponse.json({ error: msg || "Unable to provision Supabase auth user." }, { status: 400 });
+      }
+      // Fallback: locate existing auth user by listing (admin API); if unavailable, require manual link.
+      const { data: listData } = await admin.auth.admin.listUsers({ page: 1, perPage: 200 });
+      const found = listData?.users?.find((u) => (u.email || "").toLowerCase() === email);
+      authUserId = found?.id ?? existingProfile?.authUserId ?? null;
+      if (authUserId) {
+        await admin.auth.admin.updateUserById(authUserId, {
+          password,
+          email_confirm: true,
+          user_metadata: { name },
+          app_metadata: { role },
+        });
+      }
+    }
+
+    let user;
+    if (existingProfile) {
+      user = await updateUserAdmin(existingProfile.id, {
+        name,
+        role,
+        isActive: true,
+        authUserId,
+        resetPassword: password,
+        mustChangePassword,
+      });
+    } else {
+      user = await createUser({
+        email,
+        name,
+        role,
+        password,
+        authUserId,
+        mustChangePassword,
+        isActive: true,
+      });
+    }
+
+    if (!user) return NextResponse.json({ error: "Unable to create user." }, { status: 400 });
+    log.info("admin.user.created", { by: session.email, userId: user.id, role: user.role, auth: "supabase" });
+    return NextResponse.json({ user }, { status: existingProfile ? 200 : 201 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to create user.";
     const status = /already exists/i.test(message) ? 409 : 400;

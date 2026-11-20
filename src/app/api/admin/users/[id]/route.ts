@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
 import { canManageUsers, isRole } from "@/lib/auth/roles";
-import { updateUserAdmin } from "@/lib/auth/users";
+import { findUserById, updateUserAdmin } from "@/lib/auth/users";
 import { log } from "@/lib/observability/logger";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 type Context = { params: Promise<{ id: string }> };
 
@@ -22,6 +23,9 @@ export async function PATCH(request: Request, context: Context) {
     mustChangePassword?: boolean;
   } | null;
 
+  const existing = await findUserById(id);
+  if (!existing) return NextResponse.json({ error: "User not found." }, { status: 404 });
+
   const patch: Parameters<typeof updateUserAdmin>[1] = {};
   if (typeof body?.role === "string") {
     if (!isRole(body.role)) return NextResponse.json({ error: "Select a valid role." }, { status: 400 });
@@ -37,8 +41,32 @@ export async function PATCH(request: Request, context: Context) {
   }
   if (typeof body?.mustChangePassword === "boolean") patch.mustChangePassword = body.mustChangePassword;
 
+  // Sync critical auth changes to Supabase Auth when linked.
+  if (existing.authUserId) {
+    try {
+      const admin = createSupabaseAdminClient();
+      const supaPatch: Record<string, unknown> = {};
+      if (patch.name) supaPatch.user_metadata = { name: patch.name };
+      if (patch.role) supaPatch.app_metadata = { role: patch.role };
+      if (typeof patch.isActive === "boolean") supaPatch.ban_duration = patch.isActive ? "none" : "876000h";
+      if (body?.resetPassword) {
+        supaPatch.password = body.resetPassword;
+        supaPatch.email_confirm = true;
+      }
+      if (Object.keys(supaPatch).length > 0) {
+        const { error } = await admin.auth.admin.updateUserById(existing.authUserId, supaPatch);
+        if (error) log.warn("admin.user.supabase_update_failed", { userId: id, message: error.message });
+      }
+    } catch (error) {
+      log.warn("admin.user.supabase_update_error", {
+        userId: id,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   const user = await updateUserAdmin(id, patch);
   if (!user) return NextResponse.json({ error: "User not found." }, { status: 404 });
-  log.info("admin.user.updated", { by: session.email, userId: user.id, role: user.role, active: user.isActive });
+  log.info("admin.user.updated", { by: session.email, userId: user.id, role: user.role, active: user.isActive, auth: "supabase" });
   return NextResponse.json({ user });
 }

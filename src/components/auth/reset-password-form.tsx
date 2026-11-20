@@ -2,23 +2,39 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { TextField } from "@/components/ui/text-field";
 
 export function ResetPasswordForm() {
   const params = useSearchParams();
-  const token = params.get("token") ?? "";
+  const code = params.get("code") ?? "";
+  const tokenHash = params.get("token_hash") ?? params.get("token") ?? "";
+  const [hasRecoverySession, setHasRecoverySession] = useState(false);
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
   const [done, setDone] = useState(false);
 
+  useEffect(() => {
+    // Supabase recovery links may place tokens in the URL hash fragment; detect presence for UX.
+    if (typeof window === "undefined") return;
+    const hash = window.location.hash || "";
+    if (hash.includes("type=recovery") || hash.includes("access_token=")) {
+      window.setTimeout(() => setHasRecoverySession(true), 0);
+    }
+  }, []);
+
+  const canSubmit = useMemo(
+    () => Boolean(code || tokenHash || hasRecoverySession),
+    [code, tokenHash, hasRecoverySession],
+  );
+
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
-    if (!token) {
+    if (!canSubmit) {
       setError("This reset link is invalid or has expired.");
       return;
     }
@@ -36,7 +52,7 @@ export function ResetPasswordForm() {
       const response = await fetch("/api/auth/reset-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, password }),
+        body: JSON.stringify({ code: code || undefined, token: tokenHash || undefined, password }),
       });
       const payload = (await response.json().catch(() => ({}))) as { error?: string; ok?: boolean };
       if (!response.ok || !payload.ok) {
@@ -91,10 +107,12 @@ export function ResetPasswordForm() {
         />
       </div>
       {error ? <p className="text-error">{error}</p> : null}
-      <Button type="submit" variant="primary" size="xl" disabled={pending || !token}>
+      <Button type="submit" variant="primary" size="xl" disabled={pending || !canSubmit}>
         {pending ? "Saving" : "Reset password"}
       </Button>
-      {!token ? <p className="text-error">Reset token is missing. Request a new reset link.</p> : null}
+      {!canSubmit ? (
+        <p className="text-error">Reset link is missing or invalid. Request a new reset email.</p>
+      ) : null}
       <p className="text-footer-note">
         <Link href="/login" className="text-link">
           Back to sign in

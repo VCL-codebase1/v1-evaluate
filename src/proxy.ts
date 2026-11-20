@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { SESSION_COOKIE } from "@/lib/constants";
+import { updateSupabaseSession } from "@/lib/supabase/proxy";
 
 const PROTECTED_PREFIXES = [
   "/dashboard",
@@ -14,12 +14,23 @@ const PROTECTED_PREFIXES = [
   "/admin",
 ];
 
-export function proxy(request: NextRequest) {
+const AUTH_PATHS = ["/login", "/forgot-password", "/reset-password"];
+
+function hasSupabaseAuthCookie(request: NextRequest) {
+  return request.cookies
+    .getAll()
+    .some((cookie) => cookie.name.startsWith("sb-") && cookie.name.includes("-auth-token"));
+}
+
+export async function proxy(request: NextRequest) {
+  const response = await updateSupabaseSession(request);
   const { pathname } = request.nextUrl;
-  const hasSession = Boolean(request.cookies.get(SESSION_COOKIE)?.value);
+
+  const hasSession = hasSupabaseAuthCookie(request);
   const isProtected = PROTECTED_PREFIXES.some(
     (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
   );
+  const isAuthPath = AUTH_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`));
 
   if (isProtected && !hasSession) {
     const url = request.nextUrl.clone();
@@ -28,14 +39,14 @@ export function proxy(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  if ((pathname === "/login" || pathname === "/forgot-password" || pathname === "/reset-password") && hasSession) {
+  if (isAuthPath && hasSession) {
     const url = request.nextUrl.clone();
     url.pathname = "/dashboard";
     url.search = "";
     return NextResponse.redirect(url);
   }
 
-  return NextResponse.next();
+  return response;
 }
 
 export const config = {

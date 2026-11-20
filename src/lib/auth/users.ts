@@ -6,6 +6,7 @@ import { isRole, type Role } from "@/lib/auth/roles";
 
 export type DbUser = {
   id: string;
+  authUserId: string | null;
   email: string;
   name: string;
   role: Role;
@@ -14,12 +15,15 @@ export type DbUser = {
   failedLoginCount: number;
   lockedUntil: string | null;
   lastLoginAt: string | null;
-  passwordHash: string;
-  passwordSalt: string;
+  passwordHash: string | null;
+  passwordSalt: string | null;
   createdAt: string;
 };
 
-export type PublicUser = Pick<DbUser, "id" | "email" | "name" | "role" | "isActive" | "mustChangePassword"> & {
+export type PublicUser = Pick<
+  DbUser,
+  "id" | "authUserId" | "email" | "name" | "role" | "isActive" | "mustChangePassword"
+> & {
   createdAt: string;
   lastLoginAt: string | null;
 };
@@ -34,6 +38,7 @@ function mapUser(row: Record<string, unknown>): DbUser {
   const role = String(row.role);
   return {
     id: String(row.id),
+    authUserId: row.auth_user_id ? String(row.auth_user_id) : null,
     email: String(row.email),
     name: String(row.name),
     role: (isRole(role) ? role : "Representative") as Role,
@@ -42,8 +47,8 @@ function mapUser(row: Record<string, unknown>): DbUser {
     failedLoginCount: Number(row.failed_login_count ?? 0),
     lockedUntil: toIso(row.locked_until),
     lastLoginAt: toIso(row.last_login_at),
-    passwordHash: String(row.password_hash),
-    passwordSalt: String(row.password_salt),
+    passwordHash: row.password_hash ? String(row.password_hash) : null,
+    passwordSalt: row.password_salt ? String(row.password_salt) : null,
     createdAt: toIso(row.created_at) ?? new Date().toISOString(),
   };
 }
@@ -51,6 +56,7 @@ function mapUser(row: Record<string, unknown>): DbUser {
 export function toPublicUser(user: DbUser): PublicUser {
   return {
     id: user.id,
+    authUserId: user.authUserId,
     email: user.email,
     name: user.name,
     role: user.role,
@@ -62,12 +68,15 @@ export function toPublicUser(user: DbUser): PublicUser {
 }
 
 export function verifyUserPassword(user: DbUser, password: string) {
+  if (!user.passwordHash || !user.passwordSalt) return false;
   return verifyPasswordHash(password, user.passwordHash, user.passwordSalt);
 }
 
 export async function findUserByEmail(email: string): Promise<DbUser | null> {
   await ensureDb();
-  const rows = await sql()`select * from users where lower(email) = lower(${email.trim()}) limit 1`;
+  const rows = await sql()`
+    select * from users where lower(email) = ${email.toLowerCase()} limit 1
+  `;
   return rows[0] ? mapUser(rows[0] as Record<string, unknown>) : null;
 }
 
@@ -77,17 +86,44 @@ export async function findUserById(id: string): Promise<DbUser | null> {
   return rows[0] ? mapUser(rows[0] as Record<string, unknown>) : null;
 }
 
+export async function getUserProfileByAuthId(authUserId: string): Promise<DbUser | null> {
+  await ensureDb();
+  const rows = await sql()`select * from users where auth_user_id = ${authUserId}::uuid limit 1`;
+  if (rows[0]) return mapUser(rows[0] as Record<string, unknown>);
+
+  // Fallback: link by email for pre-existing app users once (best-effort; depends on auth schema access).
+  try {
+    const rowsByEmail = await sql()`
+      select u.* from users u
+      join auth.users au on lower(u.email) = lower(au.email)
+      where au.id = ${authUserId}::uuid
+      limit 1
+    `;
+    if (!rowsByEmail[0]) return null;
+    const linked = await sql()`
+      update users set auth_user_id = ${authUserId}::uuid, updated_at = now()
+      where id = ${String((rowsByEmail[0] as Record<string, unknown>).id)} and auth_user_id is null
+      returning *
+    `;
+    return mapUser((linked[0] ?? rowsByEmail[0]) as Record<string, unknown>);
+  } catch {
+    return null;
+  }
+}
+
 export async function listUsers(): Promise<PublicUser[]> {
   await ensureDb();
   const rows = await sql()`
-    select id, email, name, role, is_active, must_change_password, created_at, last_login_at
-    from users order by created_at asc
+    select id, auth_user_id, email, name, role, is_active, must_change_password, created_at, last_login_at
+    from users
+    order by created_at asc
   `;
   return rows.map((row) => ({
     id: String(row.id),
+    authUserId: row.auth_user_id ? String(row.auth_user_id) : null,
     email: String(row.email),
     name: String(row.name),
-    role: (isRole(String(row.role)) ? (String(row.role) as Role) : "Representative"),
+    role: String(row.role) as Role,
     isActive: Boolean(row.is_active),
     mustChangePassword: Boolean(row.must_change_password),
     createdAt: toIso(row.created_at) ?? new Date().toISOString(),
@@ -95,29 +131,48 @@ export async function listUsers(): Promise<PublicUser[]> {
   }));
 }
 
-export async function countUsers() {
+export async function createUser(input: {
+  email: string;
+  name: string;
+  role: Role;
+  password?: string;
+  mustChangePassword?: boolean;
+  authUserId?: string | null;
+  isActive?: boolean;
+}) {
   await ensureDb();
-  const rows = await sql()`select count(*)::int as c from users`;
-  return Number(rows[0]?.c ?? 0);
-}
-
-export async function createUser(input: { email: string; name: string; role: Role; password: string; mustChangePassword?: boolean }) {
-  await ensureDb();
-  const email = input.email.trim().toLowerCase();
+  const email = input.email.toLowerCase().trim();
   const name = input.name.trim();
-  if (!email || !name || !isRole(input.role)) throw new Error("Invalid user data.");
+  if (!email || !name) throw new Error("Name and email are required.");
+  if (!isRole(input.role)) throw new Error("Invalid role.");
+
   const existing = await findUserByEmail(email);
   if (existing) throw new Error("A user with this email already exists.");
-  const id = `usr-${randomUUID()}`;
-  const { passwordHash, passwordSalt } = hashPassword(input.password);
+
+  const id = `usr-${randomUUID().replace(/-/g, "").slice(0, 24)}`;
+  const hashed = input.password ? hashPassword(input.password) : null;
+
   const rows = await sql()`
-    insert into users(id, email, name, role, password_hash, password_salt, is_active, must_change_password)
-    values (${id}, ${email}, ${name}, ${input.role}, ${passwordHash}, ${passwordSalt}, true, ${Boolean(input.mustChangePassword)})
-    returning id, email, name, role, is_active, must_change_password, created_at, last_login_at
+    insert into users(
+      id, auth_user_id, email, name, role, password_hash, password_salt, is_active, must_change_password
+    )
+    values (
+      ${id},
+      ${input.authUserId ? input.authUserId : null}::uuid,
+      ${email},
+      ${name},
+      ${input.role},
+      ${hashed?.passwordHash ?? null},
+      ${hashed?.passwordSalt ?? null},
+      ${input.isActive ?? true},
+      ${Boolean(input.mustChangePassword)}
+    )
+    returning id, auth_user_id, email, name, role, is_active, must_change_password, created_at, last_login_at
   `;
-  const row = rows[0] as Record<string, unknown>;
+  const row = rows[0];
   return {
     id: String(row.id),
+    authUserId: row.auth_user_id ? String(row.auth_user_id) : null,
     email: String(row.email),
     name: String(row.name),
     role: String(row.role) as Role,
@@ -125,49 +180,67 @@ export async function createUser(input: { email: string; name: string; role: Rol
     mustChangePassword: Boolean(row.must_change_password),
     createdAt: toIso(row.created_at) ?? new Date().toISOString(),
     lastLoginAt: toIso(row.last_login_at),
-  } as PublicUser;
+  } satisfies PublicUser;
 }
 
 export async function updateUserAdmin(
   id: string,
-  patch: { role?: Role; isActive?: boolean; name?: string; resetPassword?: string; mustChangePassword?: boolean },
+  patch: {
+    role?: Role;
+    isActive?: boolean;
+    name?: string;
+    authUserId?: string | null;
+    mustChangePassword?: boolean;
+    // Legacy/local compatibility: when provided, stores a local hash too (Supabase is source of truth for auth).
+    resetPassword?: string;
+  },
 ) {
   await ensureDb();
   const current = await findUserById(id);
   if (!current) return null;
-  const role = patch.role && isRole(patch.role) ? patch.role : current.role;
+
+  const role = patch.role ?? current.role;
   const isActive = typeof patch.isActive === "boolean" ? patch.isActive : current.isActive;
   const name = typeof patch.name === "string" && patch.name.trim() ? patch.name.trim() : current.name;
+  const authUserId =
+    patch.authUserId !== undefined ? patch.authUserId : current.authUserId;
   let passwordHash = current.passwordHash;
   let passwordSalt = current.passwordSalt;
-  let mustChangePassword = typeof patch.mustChangePassword === "boolean" ? patch.mustChangePassword : current.mustChangePassword;
-  if (typeof patch.resetPassword === "string" && patch.resetPassword.length >= 8) {
+  let mustChangePassword =
+    typeof patch.mustChangePassword === "boolean" ? patch.mustChangePassword : current.mustChangePassword;
+
+  if (patch.resetPassword) {
     const hashed = hashPassword(patch.resetPassword);
     passwordHash = hashed.passwordHash;
     passwordSalt = hashed.passwordSalt;
     mustChangePassword = true;
   }
+
   const rows = await sql()`
     update users set
       role = ${role},
       is_active = ${isActive},
       name = ${name},
+      auth_user_id = ${authUserId}::uuid,
       password_hash = ${passwordHash},
       password_salt = ${passwordSalt},
       must_change_password = ${mustChangePassword},
-      failed_login_count = case when ${isActive} then failed_login_count else 0 end,
-      locked_until = case when ${isActive} then locked_until else null end,
+      failed_login_count = case when ${isActive} = true then 0 else failed_login_count end,
+      locked_until = case when ${isActive} = true then null else locked_until end,
       updated_at = now()
     where id = ${id}
-    returning id, email, name, role, is_active, must_change_password, created_at, last_login_at
+    returning id, auth_user_id, email, name, role, is_active, must_change_password, created_at, last_login_at
   `;
-  if (!rows[0]) return null;
-  if (!isActive || (typeof patch.resetPassword === "string" && patch.resetPassword.length >= 8)) {
+  const row = rows[0] as Record<string, unknown> | undefined;
+  if (!row) return null;
+
+  if (patch.resetPassword && !isActive) {
     await sql()`delete from refresh_tokens where user_id = ${id}`;
   }
-  const row = rows[0] as Record<string, unknown>;
+
   return {
     id: String(row.id),
+    authUserId: row.auth_user_id ? String(row.auth_user_id) : null,
     email: String(row.email),
     name: String(row.name),
     role: String(row.role) as Role,
@@ -175,20 +248,72 @@ export async function updateUserAdmin(
     mustChangePassword: Boolean(row.must_change_password),
     createdAt: toIso(row.created_at) ?? new Date().toISOString(),
     lastLoginAt: toIso(row.last_login_at),
-  } as PublicUser;
+  } satisfies PublicUser;
+}
+
+export async function ensureUserProfile(input: {
+  authUserId: string;
+  email: string;
+  name?: string;
+  role?: string;
+  isActive?: boolean;
+  mustChangePassword?: boolean;
+}): Promise<DbUser | null> {
+  await ensureDb();
+  const email = input.email.toLowerCase().trim();
+  if (!email) return null;
+
+  const byAuth = await getUserProfileByAuthId(input.authUserId);
+  if (byAuth) return byAuth;
+
+  const existing = await findUserByEmail(email);
+  if (existing) {
+    const rows = await sql()`
+      update users set auth_user_id = ${input.authUserId}::uuid, updated_at = now()
+      where id = ${existing.id}
+      returning *
+    `;
+    return rows[0] ? mapUser(rows[0] as Record<string, unknown>) : existing;
+  }
+
+  const role = isRole(input.role) ? (input.role as Role) : "Representative";
+  const name = (input.name || email.split("@")[0] || "User").trim();
+  const id = `usr-${randomUUID().replace(/-/g, "").slice(0, 24)}`;
+  const rows = await sql()`
+    insert into users(
+      id, auth_user_id, email, name, role, is_active, must_change_password
+    )
+    values (
+      ${id},
+      ${input.authUserId}::uuid,
+      ${email},
+      ${name},
+      ${role},
+      ${input.isActive ?? true},
+      ${Boolean(input.mustChangePassword)}
+    )
+    returning *
+  `;
+  return rows[0] ? mapUser(rows[0] as Record<string, unknown>) : null;
 }
 
 export async function markLoginSuccess(userId: string) {
   await ensureDb();
   await sql()`
-    update users set failed_login_count = 0, locked_until = null, last_login_at = now(), updated_at = now()
+    update users set
+      failed_login_count = 0,
+      locked_until = null,
+      last_login_at = now(),
+      updated_at = now()
     where id = ${userId}
   `;
 }
 
-export async function markLoginFailure(userId: string, maxFailures = 10, lockMinutes = 15) {
+export async function markLoginFailure(userId: string, opts?: { maxFailures?: number; lockMinutes?: number }) {
   await ensureDb();
-  const rows = await sql()`
+  const maxFailures = opts?.maxFailures ?? 8;
+  const lockMinutes = opts?.lockMinutes ?? 15;
+  await sql()`
     update users set
       failed_login_count = failed_login_count + 1,
       locked_until = case
@@ -197,19 +322,7 @@ export async function markLoginFailure(userId: string, maxFailures = 10, lockMin
       end,
       updated_at = now()
     where id = ${userId}
-    returning failed_login_count, locked_until
   `;
-  const row = rows[0] as { failed_login_count?: number; locked_until?: unknown } | undefined;
-  return {
-    failedLoginCount: Number(row?.failed_login_count ?? 0),
-    lockedUntil: toIso(row?.locked_until),
-  };
-}
-
-export function isUserLocked(user: Pick<DbUser, "lockedUntil" | "isActive">) {
-  if (!user.isActive) return true;
-  if (!user.lockedUntil) return false;
-  return new Date(user.lockedUntil).getTime() > Date.now();
 }
 
 export async function setPassword(userId: string, password: string, opts?: { mustChangePassword?: boolean; revokeRefreshTokens?: boolean }) {
@@ -225,7 +338,12 @@ export async function setPassword(userId: string, password: string, opts?: { mus
       updated_at = now()
     where id = ${userId}
   `;
-  if (opts?.revokeRefreshTokens !== false) {
+  if (opts?.revokeRefreshTokens) {
     await sql()`delete from refresh_tokens where user_id = ${userId}`;
   }
+}
+
+export function isUserLocked(user: DbUser) {
+  if (!user.lockedUntil) return false;
+  return new Date(user.lockedUntil).getTime() > Date.now();
 }
