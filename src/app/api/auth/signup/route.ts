@@ -5,8 +5,19 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createOrganization, ensureDefaultExchangeRates } from "@/lib/auth/organizations";
 import { createUser } from "@/lib/auth/users";
-import { getSession } from "@/lib/session";
 import type { Role } from "@/lib/auth/roles";
+
+export const maxDuration = 60;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(`${label} timed out.`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timeoutId) clearTimeout(timeoutId);
+  }) as Promise<T>;
+}
 
 export async function POST(request: Request) {
   const body = (await request.json().catch(() => null)) as {
@@ -49,13 +60,27 @@ export async function POST(request: Request) {
     maxFailures: 5,
     blockMs: 60 * 60_000,
   };
-  const [ipCheck, emailCheck] = await Promise.all([checkThrottle(ipCfg), checkThrottle(emailCfg)]);
-  const blocked = ipCheck.blocked ? ipCheck : emailCheck.blocked ? emailCheck : null;
-  if (blocked) {
-    return NextResponse.json(
-      { error: "Too many signup attempts. Try again later." },
-      { status: 429, headers: { "Retry-After": String(blocked.retryAfterSec) } },
+
+  try {
+    const [ipCheck, emailCheck] = await withTimeout(
+      Promise.all([checkThrottle(ipCfg), checkThrottle(emailCfg)]),
+      8000,
+      "Signup throttle check",
     );
+    const blocked = ipCheck.blocked ? ipCheck : emailCheck.blocked ? emailCheck : null;
+    if (blocked) {
+      return NextResponse.json(
+        { error: "Too many signup attempts. Try again later." },
+        { status: 429, headers: { "Retry-After": String(blocked.retryAfterSec) } },
+      );
+    }
+  } catch (error) {
+    // Throttle checks are best-effort; do not block account creation on storage/network issues.
+    log.warn("auth.signup.throttle_check_failed", {
+      email,
+      ip: meta.ip,
+      message: error instanceof Error ? error.message : String(error),
+    });
   }
 
   let organizationId: string | null = null;
@@ -63,18 +88,22 @@ export async function POST(request: Request) {
   let createdSupabaseUser = false;
 
   try {
-    const org = await createOrganization({ name: organizationName });
+    const org = await withTimeout(createOrganization({ name: organizationName }), 15000, "Organization creation");
     organizationId = org.id;
-    await ensureDefaultExchangeRates(org.id);
+    await withTimeout(ensureDefaultExchangeRates(org.id), 15000, "Organization setup");
 
     const admin = createSupabaseAdminClient();
-    const { data: created, error: createError } = await admin.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true,
-      user_metadata: { name, organization_id: org.id, organization_name: org.name },
-      app_metadata: { role: "Super Admin", organization_id: org.id },
-    });
+    const { data: created, error: createError } = await withTimeout(
+      admin.auth.admin.createUser({
+        email,
+        password,
+        email_confirm: true,
+        user_metadata: { name, organization_id: org.id, organization_name: org.name },
+        app_metadata: { role: "Super Admin", organization_id: org.id },
+      }),
+      20000,
+      "Account provisioning",
+    );
 
     if (createError) {
       throw new Error(createError.message || "Unable to create account.");
@@ -84,40 +113,58 @@ export async function POST(request: Request) {
     createdSupabaseUser = Boolean(authUserId);
     if (!authUserId) throw new Error("Unable to create account.");
 
-    await createUser({
-      email,
-      name,
-      role: "Super Admin" as Role,
-      organizationId: org.id,
-      password,
-      authUserId,
-      mustChangePassword: false,
-      isActive: true,
-    });
+    await withTimeout(
+      createUser({
+        email,
+        name,
+        role: "Super Admin" as Role,
+        organizationId: org.id,
+        password,
+        authUserId,
+        mustChangePassword: false,
+        isActive: true,
+      }),
+      15000,
+      "Workspace profile creation",
+    );
 
     // Establish session cookies for immediate sign-in.
-    const supabase = await createSupabaseServerClient();
-    const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
-    if (signInError) {
-      log.warn("auth.signup.signin_failed", { email, organizationId: org.id, message: signInError.message });
+    try {
+      const supabase = await createSupabaseServerClient();
+      const { error: signInError } = await withTimeout(
+        supabase.auth.signInWithPassword({ email, password }),
+        15000,
+        "Sign-in",
+      );
+      if (signInError) {
+        log.warn("auth.signup.signin_failed", { email, organizationId: org.id, message: signInError.message });
+        return NextResponse.json(
+          { ok: true, requiresSignIn: true, organization: { id: org.id, name: org.name } },
+          { status: 201 },
+        );
+      }
+    } catch (signInError) {
+      log.warn("auth.signup.signin_failed", {
+        email,
+        organizationId: org.id,
+        message: signInError instanceof Error ? signInError.message : String(signInError),
+      });
       return NextResponse.json(
         { ok: true, requiresSignIn: true, organization: { id: org.id, name: org.name } },
         { status: 201 },
       );
     }
 
-    const session = await getSession();
     log.info("auth.signup.success", { email, organizationId: org.id, role: "Super Admin" });
     return NextResponse.json(
       {
         ok: true,
-        user: session,
         organization: { id: org.id, name: org.name },
       },
       { status: 201 },
     );
   } catch (error) {
-    await Promise.all([registerFailure(ipCfg), registerFailure(emailCfg)]);
+    await Promise.allSettled([registerFailure(ipCfg), registerFailure(emailCfg)]);
 
     // Best-effort cleanup to avoid orphaned tenant/auth records.
     try {
@@ -129,7 +176,6 @@ export async function POST(request: Request) {
     try {
       if (organizationId) {
         const { sql } = await import("@/lib/db/client");
-        await ensureDefaultExchangeRates(organizationId).catch(() => {});
         // cascade removes org-scoped rows if any were partially created
         await sql()`delete from organizations where id = ${organizationId}`;
       }
@@ -138,6 +184,12 @@ export async function POST(request: Request) {
     const message = error instanceof Error ? error.message : "Unable to create organization account.";
     log.warn("auth.signup.failed", { email, ip: meta.ip, message });
     const lower = message.toLowerCase();
+    if (lower.includes("timed out")) {
+      return NextResponse.json(
+        { error: "Account creation is taking too long. Please try again." },
+        { status: 504 },
+      );
+    }
     if (lower.includes("already") || lower.includes("registered") || lower.includes("exists")) {
       return NextResponse.json(
         { error: "An account with this email already exists. Sign in or use a different email." },
