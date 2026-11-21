@@ -33,11 +33,7 @@ export type EstimateRecord = {
   mode: string;
   status: EstimateStatus;
   reviewStage: ReviewStage;
-<<<<<<< Updated upstream
   workflowStep?: string;
-=======
-  workflowStep: "created" | "line_manager" | "sales_director" | "final";
->>>>>>> Stashed changes
   version: string;
   submittedAt: string | null;
   submittedBy: string | null;

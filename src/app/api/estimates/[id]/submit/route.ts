@@ -1,10 +1,8 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/api";
-import { canSubmitEstimate } from "@/lib/auth/roles";
-import { submitSheet } from "@/lib/db";
-import { log } from "@/lib/observability/logger";
 import { canSubmitEstimate, isOrgAdmin } from "@/lib/auth/roles";
-import { getEstimate } from "@/lib/db";
+import { getEstimate, submitSheet } from "@/lib/db";
+import { log } from "@/lib/observability/logger";
 
 type Context = { params: Promise<{ id: string }> };
 
@@ -12,11 +10,7 @@ export async function POST(_request: Request, context: Context) {
   const auth = await requireSession();
   if (!auth.session) return auth.response;
   if (!canSubmitEstimate(auth.session.role)) {
-<<<<<<< Updated upstream
     return NextResponse.json({ error: "You do not have access to submit estimates." }, { status: 403 });
-=======
-    return NextResponse.json({ error: "You do not have access to this action." }, { status: 403 });
->>>>>>> Stashed changes
   }
 
   const { id } = await context.params;
