@@ -24,3 +24,19 @@ export function canDecideEstimate(role: string) {
 export function canSubmitEstimate(role: string) {
   return role === "Representative" || isOrgAdmin(role);
 }
+
+export type WorkflowStep = "created" | "line_manager" | "sales_director" | "final";
+
+/** Who may act while an estimate sits on this workflow step. */
+export function roleForWorkflowStep(step: WorkflowStep): Role {
+  if (step === "line_manager") return "Line Manager";
+  if (step === "sales_director") return "Sales Director";
+  if (step === "final") return "Sales Director";
+  return "Representative";
+}
+
+export function canActOnWorkflowStep(role: string, step: WorkflowStep) {
+  if (role === "Admin") return true;
+  if (step === "created" || step === "final") return false;
+  return role === roleForWorkflowStep(step);
+}

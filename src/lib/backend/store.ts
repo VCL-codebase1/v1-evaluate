@@ -180,8 +180,70 @@ export async function listAudit(organizationId: string, estimateId?: string) {
   return events.filter((event) => !estimateId || event.estimateId === estimateId);
 }
 
+<<<<<<< Updated upstream
 export async function getRates(organizationId: string) {
   return getExchangeRates(organizationId);
+=======
+const NEXT_STEP: Record<WorkflowStep, WorkflowStep | null> = {
+  created: "line_manager",
+  line_manager: "sales_director",
+  sales_director: "final",
+  final: null,
+};
+
+const ROLE_FOR_STEP: Record<WorkflowStep, ApiRole> = {
+  created: "Line Manager",
+  line_manager: "Line Manager",
+  sales_director: "Sales Director",
+  final: "Sales Director",
+};
+
+export function decideEstimate(id: string, decision: "approved" | "returned", actor: ApiUser) {
+  const estimate = state().estimates.find((item) => item.id === id);
+  if (!estimate || estimate.reviewStage !== "in_review") {
+    return { error: "There is no estimate waiting for a decision." as const, status: 409 as const };
+  }
+  const required = ROLE_FOR_STEP[estimate.workflowStep];
+  if (actor.role !== required && actor.role !== "Admin") {
+    return { error: `${required} must decide this step.` as const, status: 403 as const };
+  }
+  if (decision === "returned") {
+    estimate.reviewStage = "returned";
+    estimate.status = "rejected";
+    estimate.workflowStep = "created";
+    audit({
+      actor: actor.name,
+      role: actor.role as ApiRole,
+      action: "sheet.returned",
+      estimateId: id,
+      detail: "Returned",
+    });
+    return { sheet: getSheetView(id) };
+  }
+  const next = NEXT_STEP[estimate.workflowStep];
+  if (!next || next === "final") {
+    estimate.workflowStep = "final";
+    estimate.reviewStage = "approved";
+    estimate.status = "approved";
+    audit({
+      actor: actor.name,
+      role: actor.role as ApiRole,
+      action: "sheet.approved",
+      estimateId: id,
+      detail: "Finally Approved",
+    });
+  } else {
+    estimate.workflowStep = next;
+    audit({
+      actor: actor.name,
+      role: actor.role as ApiRole,
+      action: "sheet.advanced",
+      estimateId: id,
+      detail: `Moved to ${next.replaceAll("_", " ")}`,
+    });
+  }
+  return { sheet: getSheetView(id) };
+>>>>>>> Stashed changes
 }
 
 export async function saveRates(organizationId: string, patch: Partial<ExchangeRateTable>) {

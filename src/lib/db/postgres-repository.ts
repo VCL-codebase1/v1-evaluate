@@ -1,3 +1,4 @@
+import { canActOnWorkflowStep } from "@/lib/auth/roles";
 import { WORKFLOW_STEPS } from "@/lib/constants";
 import { DEFAULT_RATES, summarizeSheet } from "@/lib/estimation";
 import { ensureDb } from "@/lib/db/schema";
@@ -55,7 +56,13 @@ function mapEstimate(row: Record<string, unknown>): EstimateRecord {
     mode: String(row.mode ?? "Air freight"),
     status: String(row.status ?? "pending") as EstimateStatus,
     reviewStage: String(row.review_stage ?? "draft") as ReviewStage,
+<<<<<<< Updated upstream
     workflowStep: String(row.workflow_step ?? "created"),
+=======
+    workflowStep: (["created", "line_manager", "sales_director", "final"].includes(String(row.workflow_step))
+      ? String(row.workflow_step)
+      : "created") as EstimateRecord["workflowStep"],
+>>>>>>> Stashed changes
     version: String(row.version ?? "v1"),
     submittedAt: toIso(row.submitted_at),
     submittedBy: row.submitted_by ? String(row.submitted_by) : null,
@@ -266,6 +273,7 @@ function cleanLine(line: Partial<SheetLine>, index: number): SheetLine | null {
   };
 }
 
+<<<<<<< Updated upstream
 function requireConfiguredRates(lines: SheetLine[], rates: ExchangeRateTable) {
   const currencies = [...new Set(lines.map((line) => line.currency))];
   const missing = currencies.filter((currency) => currency !== "NGN" && (!rates[currency] || rates[currency] <= 0));
@@ -275,7 +283,18 @@ function requireConfiguredRates(lines: SheetLine[], rates: ExchangeRateTable) {
 }
 
 async function syncEstimate(id: string, organizationId: string, totalNgn: number, stage: ReviewStage) {
+=======
+async function syncEstimate(id: string, totalNgn: number, stage: ReviewStage, workflowStep?: EstimateRecord["workflowStep"]) {
+>>>>>>> Stashed changes
   const status = stage === "approved" ? "approved" : stage === "returned" ? "rejected" : "pending";
+  if (workflowStep) {
+    await sql()`
+      update estimates
+      set total_ngn = ${totalNgn}, review_stage = ${stage}, status = ${status}, workflow_step = ${workflowStep}, updated_at = now()
+      where id = ${id}
+    `;
+    return;
+  }
   await sql()`
     update estimates set total_ngn = ${totalNgn}, review_stage = ${stage}, status = ${status}, updated_at = now()
     where id = ${id} and organization_id = ${organizationId}
@@ -375,7 +394,11 @@ export async function submitSheet(id: string, organizationId: string, actor: str
       updated_at = now()
   `;
   const summary = summarizeSheet(current.lines, rates);
+<<<<<<< Updated upstream
   await syncEstimate(id, organizationId, summary.grandTotalNgn, "in_review");
+=======
+  await syncEstimate(id, summary.grandTotalNgn, "in_review", "line_manager");
+>>>>>>> Stashed changes
   await recordAudit({
     organizationId,
     actor,
@@ -421,12 +444,23 @@ export async function decideSheet(
 
   const currentRows = await sql()`select * from estimate_sheets where estimate_id = ${id} limit 1`;
   const current = currentRows[0] ? mapSheet(currentRows[0] as Record<string, unknown>) : null;
-  if (!current || current.reviewStage !== "in_review") {
+  const estimate = await getEstimate(id);
+  if (!current || !estimate || current.reviewStage !== "in_review") {
     return { error: "There is no estimate waiting for a decision." as const };
   }
+<<<<<<< Updated upstream
   const isFinalApproval = decision === "approved" && workflowStep === "sales_director";
   const nextStage: ReviewStage = decision === "returned" ? "returned" : isFinalApproval ? "approved" : "in_review";
   const nextWorkflowStep = decision === "returned" ? "created" : isFinalApproval ? "final" : "sales_director";
+=======
+  if (!canActOnWorkflowStep(actor, estimate.workflowStep)) {
+    return { error: `${actor} cannot decide the ${estimate.workflowStep.replaceAll("_", " ")} step.` as const };
+  }
+  const returned = decision === "returned";
+  const directorTurn = estimate.workflowStep === "sales_director";
+  const nextStage: ReviewStage = returned ? "returned" : directorTurn ? "approved" : "in_review";
+  const nextStep: EstimateRecord["workflowStep"] = returned ? "created" : directorTurn ? "final" : "sales_director";
+>>>>>>> Stashed changes
   await sql()`
     update estimate_sheets set review_stage = ${nextStage}, updated_at = now() where estimate_id = ${id}
   `;
@@ -439,11 +473,15 @@ export async function decideSheet(
   `;
   const rates = await getExchangeRates(organizationId);
   const summary = summarizeSheet(current.lines, rates);
+<<<<<<< Updated upstream
   await syncEstimate(id, organizationId, summary.grandTotalNgn, nextStage);
+=======
+  await syncEstimate(id, summary.grandTotalNgn, nextStage, nextStep);
+>>>>>>> Stashed changes
   await recordAudit({
     organizationId,
     actor,
-    action: decision === "approved" ? "sheet.approved" : "sheet.returned",
+    action: returned ? "sheet.returned" : directorTurn ? "sheet.approved" : "sheet.advanced",
     estimateId: id,
     detail: decision === "approved"
       ? isFinalApproval ? "Finally approved by Sales Director" : "Approved by Line Manager; sent to Sales Director"
