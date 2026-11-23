@@ -11,10 +11,17 @@ import {
   getEstimate,
   getRates,
   getSheetView,
+  addDirectory,
+  getPricingRules,
+  getQuotation,
+  importDirectory,
   listAudit,
   listClients,
+  listDirectory,
   listEstimates,
   listReports,
+  savePricingRules,
+  saveQuotation,
   publicUser,
   saveRates,
   saveRefreshToken,
@@ -25,6 +32,7 @@ import {
 } from "@/lib/backend/store";
 import { openApiDocument } from "@/lib/backend/openapi";
 import { signJwt, verifyJwt } from "@/lib/jwt";
+import type { PricingRules, QuotationDraft } from "@/lib/db/commercial";
 import type { ExchangeRateTable, SheetLine } from "@/lib/types";
 import { log, requestMeta } from "@/lib/observability/logger";
 import { checkThrottle, clearThrottle, registerFailure, throttleSubject } from "@/lib/auth/throttle";
@@ -172,6 +180,79 @@ async function handle(request: Request, context: Context) {
   if (method === "GET" && key === "clients") return json({ clients: await listClients(user.organizationId) });
   if (method === "GET" && key === "reports") return json({ reports: await listReports(user.organizationId) });
   if (method === "GET" && key === "dashboard") return json(await dashboard(user.organizationId));
+
+  if (method === "GET" && key === "directory") {
+    const kind = new URL(request.url).searchParams.get("kind");
+    if (kind !== "client" && kind !== "supplier") return json({ error: "Choose clients or suppliers." }, 400);
+    return json({ records: await listDirectory(user.organizationId, kind) });
+  }
+
+  if (method === "POST" && key === "directory") {
+    const body = await readJson(request);
+    const kind = body?.kind === "client" || body?.kind === "supplier" ? body.kind : null;
+    if (!kind) return json({ error: "Choose clients or suppliers." }, 400);
+    if (Array.isArray(body?.rows)) {
+      const records = await importDirectory(
+        user.organizationId,
+        kind,
+        body.rows.map((row) => {
+          const entry = row as { name?: string; contact?: string; email?: string };
+          return { name: String(entry.name ?? ""), contact: String(entry.contact ?? ""), email: String(entry.email ?? "") };
+        }),
+      );
+      log.info("v1.directory.imported", { userId: user.id, kind, count: records.length });
+      return json({ records }, 201);
+    }
+    const name = typeof body?.name === "string" ? body.name.trim() : "";
+    if (!name) return json({ error: "Enter a name." }, 400);
+    const record = await addDirectory(user.organizationId, kind, {
+      name,
+      contact: typeof body?.contact === "string" ? body.contact.trim() : "",
+      email: typeof body?.email === "string" ? body.email.trim() : "",
+    });
+    log.info("v1.directory.created", { userId: user.id, kind });
+    return json({ record }, 201);
+  }
+
+  if (method === "GET" && key === "pricing-rules") {
+    return json({ rules: await getPricingRules(user.organizationId), canEdit: canManageRates });
+  }
+
+  if (method === "PUT" && key === "pricing-rules") {
+    if (!canManageRates) return json({ error: "You do not have access to this action." }, 403);
+    const body = await readJson(request);
+    const patch = (body?.rules ?? body) as Partial<PricingRules> | null;
+    if (!patch || typeof patch !== "object") return json({ error: "Enter the pricing rules." }, 400);
+    const current = await getPricingRules(user.organizationId);
+    const next = { ...current };
+    (Object.keys(current) as (keyof PricingRules)[]).forEach((field) => {
+      const value = patch[field];
+      if (typeof value === "number" && Number.isFinite(value)) next[field] = value;
+    });
+    log.info("v1.pricing_rules.updated", { userId: user.id });
+    return json({ rules: await savePricingRules(user.organizationId, next) });
+  }
+
+  const quotationMatch = key.match(/^quotations\/([^/]+)$/);
+  if (quotationMatch && method === "GET") {
+    const estimate = await getEstimate(quotationMatch[1], user.organizationId);
+    if (!estimate) return json({ error: "Estimate not found." }, 404);
+    return json({ quotation: await getQuotation(user.organizationId, quotationMatch[1]) });
+  }
+  if (quotationMatch && method === "PUT") {
+    const estimate = await getEstimate(quotationMatch[1], user.organizationId);
+    if (!estimate) return json({ error: "Estimate not found." }, 404);
+    const body = (await readJson(request)) as Partial<QuotationDraft> | null;
+    const current = await getQuotation(user.organizationId, quotationMatch[1]);
+    const next: QuotationDraft = {
+      ...current,
+      ...body,
+      estimateId: quotationMatch[1],
+      issued: Array.isArray(body?.issued) ? body.issued.map(String) : current.issued,
+    };
+    log.info("v1.quotation.saved", { userId: user.id, estimateId: quotationMatch[1] });
+    return json({ quotation: await saveQuotation(user.organizationId, next) });
+  }
 
   if (method === "POST" && key === "estimates") {
     if (!canSubmitEstimate(user.role)) return json({ error: "You do not have access to create estimates." }, 403);

@@ -7,6 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "jest --config jest.config.cjs",
+    "test:e2e": "playwright test",
+    "test:cypress": "cypress run",
     "db:migrate": "node scripts/migrate.mjs"
   },
   "dependencies": {
@@ -18,13 +21,19 @@
     "react-dom": "19.3.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.1",
     "@tailwindcss/turbopack": "4.3.3",
+    "@types/jest": "^30.0.0",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "cypress": "^16.3.0",
     "eslint": "^9",
     "eslint-config-next": "16.4.6",
+    "jest": "^30.5.2",
     "tailwindcss": "4.3.3",
-    "typescript": "^5"
+    "ts-jest": "^29.4.15",
+    "typescript": "^5",
+    "wait-on": "^9.5.1"
   }
 }

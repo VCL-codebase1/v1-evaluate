@@ -1,13 +1,8 @@
 import type { Metadata } from "next";
-import { ModulePage } from "@/components/dashboard/module-page";
+import { ReportsPanel } from "@/components/commercial/reports-panel";
 
-export const metadata: Metadata = { title: "Reports and quotation" };
+export const metadata: Metadata = { title: "Reports and quotations" };
 
 export default function ReportsPage() {
-  return (
-    <ModulePage
-      title="Reports and quotation"
-      description="Quotations generated after rates are frozen will be prepared here."
-    />
-  );
+  return <ReportsPanel />;
 }

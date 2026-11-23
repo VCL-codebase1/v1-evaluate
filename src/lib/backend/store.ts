@@ -184,8 +184,13 @@ export async function getRates(organizationId: string) {
   return getExchangeRates(organizationId);
 }
 
-export async function saveRates(organizationId: string, patch: Partial<ExchangeRateTable>) {
-  return saveExchangeRates(organizationId, patch);
+export async function saveRates(
+  organizationId: string,
+  patch: Partial<ExchangeRateTable>,
+  floatation?: Partial<import("@/lib/types").ExchangeFloatation>,
+) {
+  const saved = await saveExchangeRates(organizationId, patch, floatation);
+  return saved.rates;
 }
 
 export async function listClients(organizationId: string) {
@@ -195,6 +200,16 @@ export async function listClients(organizationId: string) {
 export async function listReports(organizationId: string) {
   return listWorkspaceReports(organizationId);
 }
+
+export {
+  addDirectory,
+  getPricingRules,
+  getQuotation,
+  importDirectory,
+  listDirectory,
+  savePricingRules,
+  saveQuotation,
+} from "@/lib/db/commercial";
 
 export async function dashboard(organizationId: string) {
   const estimates = await listWorkspaceEstimates(organizationId);

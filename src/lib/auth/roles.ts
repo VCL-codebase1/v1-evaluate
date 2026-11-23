@@ -14,7 +14,7 @@ export function canManageUsers(role: string) {
 }
 
 export function canManageExchangeRates(role: string) {
-  return isOrgAdmin(role) || role === "Sales Director" || role === "Line Manager";
+  return isOrgAdmin(role) || role === "Sales Director";
 }
 
 export function canDecideEstimate(role: string) {

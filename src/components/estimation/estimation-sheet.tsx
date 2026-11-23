@@ -33,6 +33,16 @@ function blankLine(source: SourceMode, id = "draft"): SheetLine {
     base: "",
     freight: "",
     msc: "",
+    itemNumber: "",
+    manufacturer: "",
+    model: "",
+    partNumber: "",
+    specification: "",
+    unit: "",
+    supplier: "",
+    delivery: "",
+    warehouse: "",
+    markup: "",
   };
 }
 
@@ -223,7 +233,7 @@ export function EstimationSheet({
           <table className="data-table sheet-table">
             <thead>
               <tr>
-                {["#", "Item", "Source", "Currency", "Qty", "Base", "Freight", "Msc", "Bank", "Duties", "Agency", "Delivered"].map(
+                {["#", "Item no.", "Item", "Manufacturer", "Model", "Part no.", "Specification", "Unit", "Supplier", "Source", "Currency", "Qty", "Base", "Freight", "Msc", "Delivery", "Warehouse", "Markup", "Bank", "Duties", "Agency", "Delivered"].map(
                   (heading) => (
                     <th key={heading} scope="col">
                       {heading}
@@ -238,6 +248,21 @@ export function EstimationSheet({
                 return (
                   <tr key={line.id}>
                     <td className="sheet-index">{lines.length === 0 ? "#" : index + 1}</td>
+                    {(
+                      [
+                        ["itemNumber", "Item number"],
+                      ] as const
+                    ).map(([field, label]) => (
+                      <td key={field}>
+                        <input
+                          className="sheet-input"
+                          aria-label={`${label} ${index + 1}`}
+                          value={line[field] ?? ""}
+                          disabled={locked}
+                          onChange={(event) => updateLine(line.id, { [field]: event.target.value })}
+                        />
+                      </td>
+                    ))}
                     <td>
                       <input
                         className="sheet-input sheet-input-item"
@@ -247,6 +272,26 @@ export function EstimationSheet({
                         onChange={(event) => updateLine(line.id, { item: event.target.value })}
                       />
                     </td>
+                    {(
+                      [
+                        ["manufacturer", "Manufacturer"],
+                        ["model", "Model"],
+                        ["partNumber", "Part number"],
+                        ["specification", "Specification"],
+                        ["unit", "Unit"],
+                        ["supplier", "Supplier"],
+                      ] as const
+                    ).map(([field, label]) => (
+                      <td key={field}>
+                        <input
+                          className="sheet-input"
+                          aria-label={`${label} ${index + 1}`}
+                          value={line[field] ?? ""}
+                          disabled={locked}
+                          onChange={(event) => updateLine(line.id, { [field]: event.target.value })}
+                        />
+                      </td>
+                    ))}
                     <td>
                       <select
                         className="sheet-select"
@@ -286,6 +331,23 @@ export function EstimationSheet({
                                 )
                               : line[field]
                           }
+                          disabled={locked}
+                          onChange={(event) => updateLine(line.id, { [field]: event.target.value })}
+                        />
+                      </td>
+                    ))}
+                    {(
+                      [
+                        ["delivery", "Delivery"],
+                        ["warehouse", "Warehouse"],
+                        ["markup", "Markup"],
+                      ] as const
+                    ).map(([field, label]) => (
+                      <td key={field}>
+                        <input
+                          className="sheet-input sheet-input-num"
+                          aria-label={`${label} ${index + 1}`}
+                          value={line[field] ?? ""}
                           disabled={locked}
                           onChange={(event) => updateLine(line.id, { [field]: event.target.value })}
                         />

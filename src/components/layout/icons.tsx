@@ -88,6 +88,8 @@ const NAV_ICON_SRC: Record<NavIconName, string> = {
   reports: "/icons/chart.png",
   people: "/icons/person.png",
   rates: "/icons/exchange.png",
+  rules: "/icons/table.png",
+  users: "/icons/person.png",
   audit: "/icons/audit.png",
 };
 

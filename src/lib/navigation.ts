@@ -6,6 +6,8 @@ export type NavIconName =
   | "reports"
   | "people"
   | "rates"
+  | "rules"
+  | "users"
   | "audit";
 
 export type NavItem = {
@@ -13,6 +15,7 @@ export type NavItem = {
   label: string;
   icon: NavIconName;
   description: string;
+  roles?: readonly string[];
 };
 
 export const NAV_ITEMS: NavItem[] = [
@@ -57,6 +60,20 @@ export const NAV_ITEMS: NavItem[] = [
     label: "Exchange rates",
     icon: "rates",
     description: "NGN, USD, EUR, and GBP rates used on estimates.",
+  },
+  {
+    href: "/pricing-rules",
+    label: "Pricing rules",
+    icon: "rules",
+    description: "Percentages used by the pricing engine.",
+    roles: ["Sales Director", "Admin", "Super Admin"],
+  },
+  {
+    href: "/admin/users",
+    label: "Users & roles",
+    icon: "users",
+    description: "People who can sign in to this organization.",
+    roles: ["Sales Director", "Admin", "Super Admin"],
   },
   {
     href: "/audit",

@@ -70,3 +70,7 @@ Still required for real production deployments:
 - **CSP & defense-in-depth**: add a tailored Content-Security-Policy, CSRF protections where appropriate for cookie-auth flows, and full authorization review of all workspace mutations by role/business ownership.
 - **Ops**: configure log aggregation/metrics/alerting, automated backups and tested restores, and CI secrets/DB for the migration+build pipeline (`.github/workflows/ci.yml` expects `DATABASE_URL`, `SESSION_SECRET`, `JWT_SECRET`).
 - **Security hygiene**: rotate any credentials/secrets ever exposed outside secure secret stores and restrict database/network access.
+
+
+
+- run migrate : **npm run db:migrate** to sync database changes 

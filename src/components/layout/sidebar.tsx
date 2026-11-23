@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/cn";
 import { isNavItemActive, NAV_ITEMS } from "@/lib/navigation";
@@ -14,6 +14,14 @@ const MOBILE_NAV = "(max-width: 56.25rem)";
 export function Sidebar({ initialCollapsed = false }: { initialCollapsed?: boolean }) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(initialCollapsed);
+  const [role, setRole] = useState("");
+
+  useEffect(() => {
+    fetch("/api/auth/session")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((payload: { user?: { role?: string } } | null) => setRole(payload?.user?.role ?? ""))
+      .catch(() => setRole(""));
+  }, []);
   const [mobileOpen, setMobileOpen] = useState(false);
 
   function setMenuOpen(open: boolean) {
@@ -65,7 +73,7 @@ export function Sidebar({ initialCollapsed = false }: { initialCollapsed?: boole
       </div>
       <nav aria-label="Workspace">
         <ul className="nav-list">
-          {NAV_ITEMS.map((item) => {
+          {NAV_ITEMS.filter((item) => !item.roles || item.roles.includes(role)).map((item) => {
             const active = isNavItemActive(pathname, item.href);
             return (
               <li key={item.href}>
