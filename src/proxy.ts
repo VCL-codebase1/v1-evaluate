@@ -10,6 +10,7 @@ const PROTECTED_PREFIXES = [
   "/reports",
   "/clients",
   "/exchange-rates",
+  "/pricing-rules",
   "/audit",
   "/admin",
 ];

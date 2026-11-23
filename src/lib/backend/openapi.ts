@@ -245,6 +245,32 @@ export const openApiDocument = {
     "/api/v1/clients": {
       get: { tags: ["Reference"], summary: "Clients derived from estimates", responses: { "200": { description: "Clients" } } },
     },
+    "/api/v1/directory": {
+      get: {
+        tags: ["Directory"],
+        summary: "Saved clients or suppliers",
+        parameters: [{ name: "kind", in: "query", required: true, schema: { type: "string", enum: ["client", "supplier"] } }],
+        responses: { "200": { description: "Records" } },
+      },
+      post: {
+        tags: ["Directory"],
+        summary: "Add one record or import rows",
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object" } } } },
+        responses: { "201": { description: "Saved" } },
+      },
+    },
+    "/api/v1/pricing-rules": {
+      get: { tags: ["Pricing"], summary: "Organization pricing percentages", responses: { "200": { description: "Rules" } } },
+      put: {
+        tags: ["Pricing"],
+        summary: "Save pricing rules. Sales Director or an organization administrator.",
+        responses: { "200": { description: "Saved rules" } },
+      },
+    },
+    "/api/v1/quotations/{id}": {
+      get: { tags: ["Quotations"], summary: "Quotation terms and issued copies", responses: { "200": { description: "Quotation" } } },
+      put: { tags: ["Quotations"], summary: "Save terms or append an issued copy", responses: { "200": { description: "Saved quotation" } } },
+    },
     "/api/v1/reports": {
       get: { tags: ["Reference"], summary: "Finally approved quotations", responses: { "200": { description: "Reports" } } },
     },

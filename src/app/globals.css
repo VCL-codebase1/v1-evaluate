@@ -530,6 +530,147 @@ button {
   gap: 0.75rem;
 }
 
+.segmented {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.segmented button,
+.ghost-action,
+.solid-action {
+  border: 0;
+  border-radius: 0.7rem;
+  padding: 0.7rem 1.1rem;
+  font: inherit;
+  cursor: pointer;
+}
+
+.segmented button,
+.ghost-action {
+  background: #fff;
+  color: #1e1b4b;
+  box-shadow: inset 0 0 0 1px #e6e8f2;
+}
+
+.segmented button.is-selected,
+.solid-action {
+  background: #5b4dff;
+  color: #fff;
+  text-decoration: none;
+  display: inline-flex;
+  width: fit-content;
+}
+
+.directory-form,
+.quote-fields,
+.rules-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem 1.25rem;
+}
+
+.directory-form label,
+.quote-fields label,
+.rules-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  color: #312e81;
+  font-size: 0.92rem;
+}
+
+.directory-form input,
+.quote-fields input,
+.rules-grid input {
+  border: 1px solid #d9dcea;
+  border-radius: 0.7rem;
+  padding: 0.75rem 0.9rem;
+  font: inherit;
+}
+
+.dashed-empty {
+  margin: 1rem 0;
+  border: 1px dashed #c9cde0;
+  border-radius: 0.9rem;
+  min-height: 8rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  color: #6b728d;
+  text-align: center;
+}
+
+.dashed-empty strong {
+  color: #1f2433;
+}
+
+.status-pill {
+  background: #d9f7e8;
+  color: #178a4b;
+  border-radius: 999px;
+  padding: 0.2rem 0.7rem;
+  font-size: 0.85rem;
+}
+
+.import-record {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+  margin-top: 1rem;
+  color: #6b728d;
+}
+
+.import-record input {
+  display: none;
+}
+
+.report-actions,
+.library-grid {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  flex-wrap: wrap;
+}
+
+.library-grid button {
+  flex: 1;
+  min-width: 12rem;
+  text-align: left;
+  background: #f7f8fc;
+  border: 0;
+  border-radius: 0.8rem;
+  padding: 1rem;
+  cursor: pointer;
+}
+
+.library-grid span,
+.quote-preview header {
+  display: flex;
+  justify-content: space-between;
+}
+
+.quote-total {
+  display: flex;
+  justify-content: space-between;
+  margin: 0.35rem 0;
+}
+
+.quote-total strong,
+.quote-total.is-grand strong {
+  color: #3d35e0;
+}
+
+@media (max-width: 800px) {
+  .directory-form,
+  .quote-fields,
+  .rules-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 800px) {
   .rate-grid {
     grid-template-columns: 1fr;
