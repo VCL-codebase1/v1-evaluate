@@ -7,6 +7,7 @@ import type {
   DashboardSummary,
   EstimateRecord,
   EstimateStatus,
+  ExchangeFloatation,
   ExchangeRateTable,
   ReviewStage,
   SheetCurrency,
@@ -213,16 +214,31 @@ export async function getSheet(id: string, organizationId: string, version = "v1
   return rows[0] ? mapSheet(rows[0] as Record<string, unknown>) : emptySheet(id, version);
 }
 
-export async function getExchangeRates(organizationId: string): Promise<ExchangeRateTable> {
+const EMPTY_FLOATATION: ExchangeFloatation = { USD: 0, EUR: 0, GBP: 0 };
+
+export async function getExchangeRateSettings(organizationId: string): Promise<{
+  rates: ExchangeRateTable;
+  floatation: ExchangeFloatation;
+}> {
   await ensureDb();
-  const rows = await sql()`select currency, rate from exchange_rates where organization_id = ${organizationId}`;
+  const rows = await sql()`select currency, rate, floatation from exchange_rates where organization_id = ${organizationId}`;
   const rates: ExchangeRateTable = { ...DEFAULT_RATES };
+  const floatation: ExchangeFloatation = { ...EMPTY_FLOATATION };
   for (const row of rows) {
     const currency = String(row.currency) as SheetCurrency;
     if (currency in rates) rates[currency] = Number(row.rate);
+    if (currency === "USD" || currency === "EUR" || currency === "GBP") {
+      const difference = Number(row.floatation);
+      floatation[currency] = Number.isFinite(difference) ? difference : 0;
+    }
   }
   rates.NGN = 1;
-  return rates;
+  return { rates, floatation };
+}
+
+export async function getExchangeRates(organizationId: string): Promise<ExchangeRateTable> {
+  const settings = await getExchangeRateSettings(organizationId);
+  return settings.rates;
 }
 
 export async function sheetResponse(id: string, organizationId: string, version = "v1") {
@@ -465,12 +481,22 @@ export async function decideSheet(
   };
 }
 
-export async function saveExchangeRates(organizationId: string, patch: Partial<ExchangeRateTable>) {
+export async function saveExchangeRates(
+  organizationId: string,
+  patch: Partial<ExchangeRateTable>,
+  floatationPatch?: Partial<ExchangeFloatation>,
+) {
   await ensureDb();
-  const rates = await getExchangeRates(organizationId);
+  const current = await getExchangeRateSettings(organizationId);
+  const rates = current.rates;
+  const floatation = current.floatation;
   (Object.keys(DEFAULT_RATES) as SheetCurrency[]).forEach((currency) => {
     const next = patch[currency];
     if (typeof next === "number" && Number.isFinite(next) && next > 0) rates[currency] = next;
+  });
+  (["USD", "EUR", "GBP"] as const).forEach((currency) => {
+    const next = floatationPatch?.[currency];
+    if (typeof next === "number" && Number.isFinite(next)) floatation[currency] = next;
   });
   rates.NGN = 1;
   const missing = (["USD", "EUR", "GBP"] as const).filter((currency) => rates[currency] <= 0);
@@ -478,14 +504,14 @@ export async function saveExchangeRates(organizationId: string, patch: Partial<E
     throw new Error(`Enter a positive NGN exchange rate for ${missing.join(", ")}.`);
   }
   await sql()`
-    insert into exchange_rates(organization_id, currency, rate) values
-      (${organizationId}, 'NGN', ${rates.NGN}),
-      (${organizationId}, 'USD', ${rates.USD}),
-      (${organizationId}, 'EUR', ${rates.EUR}),
-      (${organizationId}, 'GBP', ${rates.GBP})
-    on conflict (organization_id, currency) do update set rate = excluded.rate
+    insert into exchange_rates(organization_id, currency, rate, floatation) values
+      (${organizationId}, 'NGN', ${rates.NGN}, 0),
+      (${organizationId}, 'USD', ${rates.USD}, ${floatation.USD}),
+      (${organizationId}, 'EUR', ${rates.EUR}, ${floatation.EUR}),
+      (${organizationId}, 'GBP', ${rates.GBP}, ${floatation.GBP})
+    on conflict (organization_id, currency) do update set rate = excluded.rate, floatation = excluded.floatation
   `;
-  return { ...rates };
+  return { rates: { ...rates }, floatation: { ...floatation } };
 }
 
 export async function listClients(organizationId: string) {

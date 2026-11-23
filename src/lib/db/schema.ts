@@ -17,7 +17,7 @@ export async function ensureDb() {
         );
       });
       const rows = await Promise.race([
-        sql()`select 1 from schema_migrations where id = '0005_production_data_hardening' limit 1`,
+        sql()`select 1 from schema_migrations where id = '0006_exchange_rate_floatation' limit 1`,
         timeout,
       ]).finally(() => {
         if (timeoutId) clearTimeout(timeoutId);

@@ -8,7 +8,7 @@ export default function ExchangeRatesPage() {
   return (
     <ModulePage
       title="Exchange rates"
-      description="Review and update the conversion rates used by your organization's estimates."
+      description="NGN rates for USD, EUR, and GBP. A Sales Director saves the values used on estimates."
     ><ExchangeRatesPanel /></ModulePage>
   );
 }

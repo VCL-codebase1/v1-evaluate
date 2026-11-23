@@ -9,6 +9,7 @@ export {
   deleteEstimate,
   getDashboardSummary,
   getEstimate,
+  getExchangeRateSettings,
   getExchangeRates,
   getLatestEstimateId,
   getSheet,

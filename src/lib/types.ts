@@ -76,6 +76,8 @@ export type SheetRecord = {
 
 export type ExchangeRateTable = Record<SheetCurrency, number>;
 
+export type ExchangeFloatation = Record<Exclude<SheetCurrency, "NGN">, number>;
+
 export type AuditEvent = {
   id: string;
   at: string;

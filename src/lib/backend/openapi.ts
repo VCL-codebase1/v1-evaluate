@@ -227,7 +227,7 @@ export const openApiDocument = {
       get: { tags: ["Reference"], summary: "Rates applied to foreign totals", responses: { "200": { description: "Rates" } } },
       put: {
         tags: ["Reference"],
-        summary: "Update USD, EUR, or GBP",
+        summary: "Update USD, EUR, or GBP rates and floatation. Sales Director or an organization administrator.",
         requestBody: {
           required: true,
           content: {

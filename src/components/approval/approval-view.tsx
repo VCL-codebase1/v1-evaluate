@@ -27,12 +27,6 @@ type SheetPayload = {
   summary: { grandTotalNgn: number; lines: ComputedLine[] };
 };
 
-function stageIndex(stage: ReviewStage | null) {
-  if (stage === "approved") return 3;
-  if (stage === "in_review" || stage === "draft" || stage === "returned") return 0;
-  return -1;
-}
-
 function statusLabel(stage: ReviewStage) {
   if (stage === "approved") return "Finally Approved";
   if (stage === "returned") return "Returned";
@@ -87,7 +81,17 @@ export function ApprovalPanel() {
   const [estimates, setEstimates] = useState<EstimateRecord[] | null>(null);
   const [sheet, setSheet] = useState<SheetPayload | null>(null);
   const [events, setEvents] = useState<AuditEvent[]>([]);
+  const [role, setRole] = useState("");
+  const [comment, setComment] = useState("");
+  const [decisionError, setDecisionError] = useState("");
   const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/auth/session")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((payload: { user?: { role?: string } } | null) => setRole(payload?.user?.role ?? ""))
+      .catch(() => setRole(""));
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -144,14 +148,61 @@ export function ApprovalPanel() {
   const selected = estimates?.find((estimate) => estimate.id === selectedId) ?? null;
   const activeSheet = selectedId && sheet?.estimateId === selectedId ? sheet : null;
   const stage = selected?.reviewStage ?? activeSheet?.reviewStage ?? null;
-  const activeStep = stageIndex(selectedId ? stage : null);
   const lines = (activeSheet?.summary?.lines ?? activeSheet?.lines ?? []).filter((line) => line.item.trim());
   const history = selectedId ? events.filter((event) => event.estimateId === selectedId) : [];
   const locked = stage === "in_review" || stage === "approved";
+  const step = selected?.workflowStep ?? "created";
+  const activeStep = !selectedId
+    ? -1
+    : stage === "approved" || step === "final"
+      ? 3
+      : step === "sales_director"
+        ? 2
+        : step === "line_manager"
+          ? 1
+          : 0;
+  const idleSteps = role === "Line Manager"
+    ? (["Estimate Created", "Approved by Sales Director", "Finally Approved"] as const)
+    : role === "Sales Director"
+      ? (["Estimate Created", "Approved by Line Manager", "Finally Approved"] as const)
+      : STEPS;
+  const visibleSteps = selectedId ? STEPS : idleSteps;
+  const canDecide = stage === "in_review" && (
+    (role === "Line Manager" && (step === "created" || step === "line_manager"))
+    || (role === "Sales Director" && step === "sales_director")
+    || role === "Admin"
+    || role === "Super Admin"
+  );
+  const isFinalStep = step === "sales_director" || role === "Sales Director";
+
+  async function decide(decision: "approved" | "returned") {
+    if (!selectedId) return;
+    setDecisionError("");
+    const response = await fetch(`/api/estimates/${selectedId}/decision`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ decision, comment }),
+    });
+    const payload = await response.json();
+    if (!response.ok) {
+      setDecisionError(payload.error || "Unable to record this decision.");
+      return;
+    }
+    router.refresh();
+    setEstimates(null);
+    const reload = await fetch("/api/estimates");
+    if (reload.ok) {
+      const data = (await reload.json()) as { estimates: EstimateRecord[] };
+      setEstimates(data.estimates);
+    }
+  }
 
   return (
     <div className="page-stack approvals-page">
-      <h1 className="text-page-title">Approvals</h1>
+      <h1 className="text-page-title">
+        {selected ? `Approval · ${selected.id}` : "Approvals"}
+        {selected ? <span className="queue-status">{statusLabel(selected.reviewStage)}</span> : null}
+      </h1>
 
       <section className="surface-card approvals-card">
         <h2>Quotation queue</h2>
@@ -219,12 +270,12 @@ export function ApprovalPanel() {
       <section className="surface-card approvals-card">
         <h2>Estimate workflow · all roles</h2>
         <div className="workflow-track" aria-hidden>
-          <span style={{ width: activeStep < 0 ? "2%" : `${((activeStep + 1) / STEPS.length) * 100}%` }} />
+          <span style={{ width: activeStep < 0 ? "2%" : `${((activeStep + 1) / visibleSteps.length) * 100}%` }} />
         </div>
         <ol className="workflow-pills">
-          {STEPS.map((step, index) => (
-            <li key={step}>
-              <span className={index === activeStep ? "workflow-pill is-current" : "workflow-pill"}>{step}</span>
+          {visibleSteps.map((label, index) => (
+            <li key={label}>
+              <span className={selectedId && index <= activeStep ? "workflow-pill is-current" : "workflow-pill"}>{label}</span>
             </li>
           ))}
         </ol>
@@ -309,26 +360,61 @@ export function ApprovalPanel() {
           </>
         ) : (
           <div className="table-scroll">
-            <table className="data-table approvals-queue">
+            <table className="data-table breakdown-table">
               <thead>
                 <tr>
-                  <th scope="col">Item</th>
-                  <th scope="col">Total</th>
-                  <th scope="col">Total (NGN)</th>
-                  <th scope="col">Extended (NGN)</th>
+                  {["#", "Item", "Source", "Currency", "Qty", "Base", "Freight", "Msc", "Bank", "Duties", "Agency", "Delivery"].map((heading) => (
+                    <th key={heading} scope="col">{heading}</th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
                 <tr>
-                  <td className="table-empty" colSpan={4}>
-                    No quotation yet
-                  </td>
+                  <td>#</td>
+                  <td><input className="sheet-input sheet-input-item" readOnly aria-label="Item" /></td>
+                  <td><select className="sheet-select" disabled defaultValue="Local" aria-label="Source"><option>Local</option></select></td>
+                  <td><select className="sheet-select" disabled defaultValue="NGN" aria-label="Currency"><option>NGN</option></select></td>
+                  <td><input className="sheet-input sheet-input-num" readOnly aria-label="Qty" /></td>
+                  <td><input className="sheet-input sheet-input-num" readOnly aria-label="Base" /></td>
+                  <td><input className="sheet-input sheet-input-num" readOnly aria-label="Freight" /></td>
+                  <td><input className="sheet-input sheet-input-num" readOnly aria-label="Msc" /></td>
+                  <td className="breakdown-calc">0.0</td>
+                  <td className="breakdown-calc">N/A</td>
+                  <td className="breakdown-calc">N/A</td>
+                  <td className="breakdown-calc">0.0</td>
                 </tr>
               </tbody>
             </table>
           </div>
         )}
       </section>
+
+      {selected ? (
+        <section className="surface-card approvals-card">
+          <h2>Your decision</h2>
+          <label className="field-label" htmlFor="decision-comment">Comment</label>
+          <textarea id="decision-comment" className="field-input" rows={4} value={comment} onChange={(event) => setComment(event.target.value)} />
+          {decisionError ? <p className="text-error" role="alert">{decisionError}</p> : null}
+          <div className="form-fields">
+            {canDecide && isFinalStep && role !== "Line Manager" ? (
+              <button type="button" className="add-item-btn" onClick={() => decide("approved")}>Final Approval</button>
+            ) : null}
+            {canDecide && role === "Line Manager" ? (
+              <button type="button" className="add-item-btn" onClick={() => decide("approved")}>Approve (Send to Sales Director)</button>
+            ) : null}
+            {canDecide ? (
+              <button type="button" className="queue-action" onClick={() => decide("returned")}>Return for Correction</button>
+            ) : null}
+            {canDecide ? (
+              <button type="button" className="queue-action" onClick={() => decide("returned")}>Reject</button>
+            ) : null}
+            <button type="button" className="queue-action" onClick={() => router.push("/approval")}>Close RFQ</button>
+            {stage === "approved" ? (
+              <Link href="/reports" className="add-item-btn">Create & Send Quotation to Client</Link>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
 
       <section className="surface-card approvals-card">
         <h2 className="history-title">History</h2>
