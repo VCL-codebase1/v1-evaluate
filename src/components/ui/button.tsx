@@ -38,7 +38,7 @@ function variantClass(variant: Variant, size: Size) {
   }
 
   if (variant === "quiet") {
-    return "border-[0.0938rem] border-[#e7ebf4] bg-white text-[#171717] shadow-[0_0.125rem_0.625rem_#00000014] enabled:hover:border-[#d9dfec] enabled:hover:bg-[#f7f8fc]";
+    return "border-[0.0938rem] border-transparent bg-transparent text-[#26344e] enabled:hover:bg-[#e9edfa] enabled:hover:text-[#2f4bff]";
   }
 
   return "h-[2.8125rem] rounded-lg border-0 bg-[#da3030] px-[1.375rem] text-[1.0625rem] font-bold tracking-normal text-white shadow-[var(--shadow-signout)] enabled:hover:bg-[#c42828] enabled:active:bg-[#b12222] max-[56.25rem]:h-10 max-[56.25rem]:px-[0.9rem] max-[56.25rem]:text-sm";

@@ -21,7 +21,7 @@ export function DashboardView({
   const waiting = estimates.filter((estimate) => estimate.reviewStage === "in_review").length;
 
   return (
-    <div className="stack">
+    <div className="stack dashboard-page">
       <HeroBanner role={role} waiting={waiting} />
       <WorkflowPanel
         steps={manager ? MANAGER_STEPS : summary.steps}

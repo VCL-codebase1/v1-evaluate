@@ -97,7 +97,7 @@ export function UserAdminPanel() {
   }
 
   return (
-    <div className="page-stack">
+    <div className="page-stack user-admin-page">
       <div className="page-heading">
         <h1 className="text-page-title">User administration</h1>
       </div>

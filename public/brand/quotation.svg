@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 440">
+  <title>Two colleagues preparing a quotation</title>
+  <defs>
+    <linearGradient id="shirt" x2=".8" y2="1"><stop stop-color="#91a7ff"/><stop offset="1" stop-color="#5769df"/></linearGradient>
+    <linearGradient id="jacket" x2="1" y2="1"><stop stop-color="#bcacff"/><stop offset="1" stop-color="#8374dd"/></linearGradient>
+  </defs>
+  <!-- A window and a distant skyline locate the scene. -->
+  <g fill="none" stroke="#abbaff" opacity=".32" stroke-width="1.5">
+    <rect x="79" y="64" width="300" height="142" rx="3"/>
+    <path d="M179 64v142m100-142v142M79 158h300"/>
+    <path d="M80 194h21v-21h24v12h17v-51h24v72m35 0v-34h27v34m57-1v-22h18v-39h21v41h20v-18h22v39" opacity=".65"/>
+  </g>
+  <circle cx="240" cy="105" r="15" fill="#c5caff" opacity=".5"/>
+  <ellipse cx="302" cy="363" rx="243" ry="11" fill="#0b1736" opacity=".47"/>
+  <!-- Seated analyst, in profile at the laptop. -->
+  <g stroke-linecap="round" stroke-linejoin="round">
+    <path d="m115 289-12 67m70-65 13 65" stroke="#828ac8" stroke-width="5"/>
+    <path d="m92 228 9 55q2 13 17 13h57" fill="none" stroke="#8893dc" stroke-width="10"/>
+    <path d="M126 262h44l43 15q9 3 7 15l-10 56h-17l3-52-59-6q-17-2-11-28" fill="#394b86"/>
+    <path d="m125 267 42 3 33 18-19 57-15-2 10-45-46-11z" fill="#27365c"/>
+    <path d="m166 342 15 2 9 9q2 5-6 5h-23zm27 4h17l14 9q3 5-5 5h-28z" fill="#c6cff5"/>
+    <path d="m146 164-2 17 22 6 4-25z" fill="#ad735c"/>
+    <path d="M139 130q3-19 24-15 18 3 19 22l4 11-6 3q-1 19-14 19-15 0-23-17z" fill="#dfaa88"/>
+    <path d="M139 155q-13-8-9-25 0-14 15-18 21-10 33 2 8 8 4 19-14 1-19-8-3 10-12 13v13z" fill="#202338"/>
+    <path d="M144 174q-18 2-23 20l-9 65q15 12 60 8l3-65q0-22-12-24l-6 7z" fill="url(#shirt)"/>
+    <path d="m150 197 22 39 41 1" fill="none" stroke="#7387ed" stroke-width="18"/>
+    <path d="m210 233 17-1 12 6-3 5-25-1z" fill="#dfaa88"/>
+    <!-- Standing reviewer, pointing to the screen. -->
+    <path d="m385 230 51 2-1 117h-19l-6-81-14 80h-18z" fill="#334373"/>
+    <path d="m411 263 4 82" stroke="#8993ce" fill="none"/>
+    <path d="m378 345 18 1-1 12h-37q-1-6 9-8zm38 1 19 1 7 10q1 4-7 4h-20z" fill="#cbd3f4"/>
+    <path d="M385 114q-7-30 15-36 23-6 32 18 2 15 12 22 8 9 0 22l-45-3z" fill="#202338"/>
+    <path d="m399 113 1 22 18 4-3-29z" fill="#965f50"/>
+    <path d="M389 92q-4 7-4 15l-5 7 5 3q1 14 14 12 11-2 15-14l-1-17q-13 0-18-11z" fill="#c48a72"/>
+    <path d="m400 132-14 6q-9 9-10 26l2 76q26 7 62-1l-9-79q-2-20-14-26l-10 8z" fill="url(#jacket)"/>
+    <path d="m388 151-20 37-30 7" stroke="#aa99f1" stroke-width="17" fill="none"/>
+    <path d="m339 190-12 1-15 9 2 4 14-5 10 2z" fill="#c48a72"/>
+    <path d="m422 156 3 40-14 21" stroke="#9786e6" stroke-width="15" fill="none"/>
+    <path d="m408 210 11 6-8 12q-6 6-10 0z" fill="#c48a72"/>
+    <!-- Desk, open laptop and a ruled quotation. -->
+    <path d="m193 249-7 110m167-110 8 110" stroke="#abb5ef" stroke-width="6"/>
+    <path d="M176 241h198v8H176z" fill="#d1d9ff"/>
+    <path d="M229 237h69l-13 4h-68z" fill="#adb9f2"/>
+    <path d="m241 235 9-51h69l-10 51z" fill="#d7dfff"/>
+    <path d="m247 231 7-42h59l-8 42z" fill="#4c56ac"/>
+    <path d="m260 200 23 0m-25 9h37m-39 8h30" stroke="#c7cdff" stroke-width="3"/>
+    <path d="m322 233 28-2 12 8-32 1z" fill="#eef0ff"/>
+  </g>
+</svg>
