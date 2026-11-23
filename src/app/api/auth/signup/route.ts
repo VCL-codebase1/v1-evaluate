@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { log, requestMeta } from "@/lib/observability/logger";
-import { checkThrottle, registerFailure, throttleSubject } from "@/lib/auth/throttle";
+import { checkSignupThrottles, registerFailure, throttleSubject } from "@/lib/auth/throttle";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { createOrganization, ensureDefaultExchangeRates } from "@/lib/auth/organizations";
+import { createOrganization } from "@/lib/auth/organizations";
 import { createUser } from "@/lib/auth/users";
 import { ensureDb } from "@/lib/db/schema";
 import type { Role } from "@/lib/auth/roles";
@@ -72,13 +72,12 @@ export async function POST(request: Request) {
   };
 
   try {
-    const [ipCheck, emailCheck] = await withTimeout(
-      Promise.all([checkThrottle(ipCfg), checkThrottle(emailCfg)]),
+    const blocked = await withTimeout(
+      checkSignupThrottles(ipCfg, emailCfg),
       8000,
       "Signup throttle check",
     );
-    const blocked = ipCheck.blocked ? ipCheck : emailCheck.blocked ? emailCheck : null;
-    if (blocked) {
+    if (blocked.blocked) {
       return NextResponse.json(
         { error: "Too many signup attempts. Try again later." },
         { status: 429, headers: { "Retry-After": String(blocked.retryAfterSec) } },
@@ -105,22 +104,13 @@ export async function POST(request: Request) {
     organizationId = org.id;
 
     const admin = createSupabaseAdminClient();
-    // The workspace defaults and Supabase identity are independent after the
-    // organization exists. Run them together so signup doesn't add a database
-    // roundtrip to the critical path.
-    const [ratesResult, authResult] = await Promise.allSettled([
-      withTimeout(ensureDefaultExchangeRates(org.id), 15000, "Organization setup"),
-      withTimeout(admin.auth.admin.createUser({
-        email,
-        password,
-        email_confirm: true,
-        user_metadata: { name, organization_id: org.id, organization_name: org.name },
-        app_metadata: { role: "Super Admin", organization_id: org.id },
-      }), 20000, "Account provisioning"),
-    ]);
-
-    if (authResult.status === "rejected") throw authResult.reason;
-    const { data: created, error: createError } = authResult.value;
+    const { data: created, error: createError } = await withTimeout(admin.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: { name, organization_id: org.id, organization_name: org.name },
+      app_metadata: { role: "Super Admin", organization_id: org.id },
+    }), 20000, "Account provisioning");
 
     if (createError) {
       throw new Error(createError.message || "Unable to create account.");
@@ -129,8 +119,6 @@ export async function POST(request: Request) {
     authUserId = created.user?.id ?? null;
     createdSupabaseUser = Boolean(authUserId);
     if (!authUserId) throw new Error("Unable to create account.");
-
-    if (ratesResult.status === "rejected") throw ratesResult.reason;
 
     await withTimeout(
       createUser({

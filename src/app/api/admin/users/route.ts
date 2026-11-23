@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
 import { canManageUsers, isRole } from "@/lib/auth/roles";
-import { createUser, findUserByEmail, listUsers, updateUserAdmin } from "@/lib/auth/users";
+import { createUser, findUserByEmail, listUsers } from "@/lib/auth/users";
 import { log } from "@/lib/observability/logger";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
@@ -51,9 +51,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Password must be at least 8 characters.", field: "password" }, { status: 400 });
   }
 
+  let createdAuthUserId: string | null = null;
   try {
     const admin = createSupabaseAdminClient();
     const existingProfile = await findUserByEmail(email, session.organizationId);
+    if (existingProfile) {
+      return NextResponse.json({ error: "A user with this email already exists in your organization." }, { status: 409 });
+    }
 
     const supaUserMeta = {
       name,
@@ -62,7 +66,6 @@ export async function POST(request: Request) {
     };
     const supaAppMeta = { role, organization_id: session.organizationId };
 
-    // Try to create Supabase auth user; if email already exists globally, reuse it.
     const { data: created, error: createError } = await admin.auth.admin.createUser({
       email,
       password,
@@ -71,84 +74,41 @@ export async function POST(request: Request) {
       app_metadata: supaAppMeta,
     });
 
-    let authUserId = created.user?.id ?? null;
     if (createError) {
       const msg = createError.message || "";
-      const isDuplicate = /already|exists|registered/i.test(msg);
-      if (!isDuplicate) {
-        log.warn("admin.user.supabase_create_failed", { by: session.email, email, message: msg });
-        return NextResponse.json({ error: msg || "Unable to provision Supabase auth user." }, { status: 400 });
-      }
-      let found = null;
-      for (let page = 1; page <= 100; page += 1) {
-        const { data: listData, error: listError } = await admin.auth.admin.listUsers({ page, perPage: 200 });
-        if (listError) throw new Error("Unable to verify the existing account organization.");
-        found = listData?.users?.find((u) => (u.email || "").toLowerCase() === email) ?? null;
-        if (found || (listData?.users?.length ?? 0) < 200) break;
-      }
-      if (!found && !existingProfile?.authUserId) {
-        return NextResponse.json(
-          { error: "The existing account could not be safely linked. Contact your administrator." },
-          { status: 409 },
-        );
-      }
-      // Supabase Auth identities are global. Reusing an identity from another
-      // organization would let this tenant overwrite its role and tenant claim.
-      if (
-        found &&
-        found.id !== existingProfile?.authUserId &&
-        found.app_metadata?.organization_id !== session.organizationId
-      ) {
-        return NextResponse.json(
-          { error: "This email already belongs to an account outside your organization." },
-          { status: 409 },
-        );
-      }
-      authUserId = found?.id ?? existingProfile?.authUserId ?? null;
-      if (authUserId) {
-        const { error: updErr } = await admin.auth.admin.updateUserById(authUserId, {
-          password,
-          email_confirm: true,
-          user_metadata: supaUserMeta,
-          app_metadata: supaAppMeta,
-        });
-        if (updErr) {
-          log.warn("admin.user.supabase_update_failed", { by: session.email, email, message: updErr.message });
-        }
-      }
-    }
-
-    let user;
-    if (existingProfile) {
-      user = await updateUserAdmin(
-        existingProfile.id,
-        {
-          name,
-          role,
-          isActive: true,
-          authUserId,
-          mustChangePassword,
-        },
-        session.organizationId,
+      log.warn("admin.user.supabase_create_failed", { by: session.email, email, message: msg });
+      return NextResponse.json(
+        { error: /already|exists|registered/i.test(msg) ? "An account with this email already exists." : msg || "Unable to provision user." },
+        { status: /already|exists|registered/i.test(msg) ? 409 : 502 },
       );
-    } else {
-      user = await createUser({
-        email,
-        name,
-        role,
-        organizationId: session.organizationId,
-        authUserId,
-        mustChangePassword,
-        isActive: true,
-      });
     }
-
-    if (!user) return NextResponse.json({ error: "Unable to create user." }, { status: 400 });
+    createdAuthUserId = created.user?.id ?? null;
+    if (!createdAuthUserId) throw new Error("Supabase did not return a user ID.");
+    const user = await createUser({
+      email,
+      name,
+      role,
+      organizationId: session.organizationId,
+      authUserId: createdAuthUserId,
+      mustChangePassword,
+      isActive: true,
+    });
+    createdAuthUserId = null;
     log.info("admin.user.created", { by: session.email, userId: user.id, role: user.role, auth: "supabase", organizationId: session.organizationId });
-    return NextResponse.json({ user }, { status: existingProfile ? 200 : 201 });
+    return NextResponse.json({ user }, { status: 201 });
   } catch (error) {
+    if (createdAuthUserId) {
+      try {
+        await createSupabaseAdminClient().auth.admin.deleteUser(createdAuthUserId);
+      } catch (cleanupError) {
+        log.warn("admin.user.auth_cleanup_failed", {
+          authUserId: createdAuthUserId,
+          message: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+        });
+      }
+    }
     const message = error instanceof Error ? error.message : "Unable to create user.";
-    const status = /already exists/i.test(message) ? 409 : 400;
+    const status = /already exists/i.test(message) ? 409 : 503;
     return NextResponse.json({ error: message }, { status });
   }
 }

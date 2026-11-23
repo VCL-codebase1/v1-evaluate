@@ -4,6 +4,7 @@ import { QuotationTable } from "@/components/dashboard/quotation-table";
 import { StatCard } from "@/components/dashboard/stat-card";
 import { WorkflowPanel } from "@/components/dashboard/workflow-panel";
 import type { DashboardSummary, EstimateRecord } from "@/lib/types";
+import { canManageUsers, isRole } from "@/lib/auth/roles";
 
 const MANAGER_STEPS = ["Estimate Created", "Approved by Sales Director", "Quotation Generated"] as const;
 
@@ -33,6 +34,11 @@ export function DashboardView({
         ))}
       </div>
       <div className="action-row">
+        {isRole(role) && canManageUsers(role) ? (
+          <ButtonLink href="/admin/users" variant="quiet" size="sm" fill>
+            Manage users
+          </ButtonLink>
+        ) : null}
         <ButtonLink href="/rfqs/new" variant="primary" size="sm" fill>
           + New RFQ Estimate
         </ButtonLink>

@@ -57,13 +57,11 @@ export function SignupForm() {
       }
       if (payload.requiresSignIn) {
         setPending(false);
-        router.push("/login");
-        router.refresh();
+        router.push("/login?next=%2Fdashboard");
         return;
       }
       setPending(false);
       router.push("/dashboard");
-      router.refresh();
     } catch {
       setFormError("Unable to create your organization account. Check your connection and try again.");
       setPending(false);

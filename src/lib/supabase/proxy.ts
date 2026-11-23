@@ -18,6 +18,6 @@ export async function updateSupabaseSession(request: NextRequest) {
   });
 
   // Refresh session cookies if needed; do not enforce authz here.
-  await supabase.auth.getUser();
-  return response;
+  const { data: { user } } = await supabase.auth.getUser();
+  return { response, authenticated: Boolean(user) };
 }

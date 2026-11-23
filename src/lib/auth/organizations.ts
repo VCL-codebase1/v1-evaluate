@@ -47,19 +47,16 @@ export async function createOrganization(input: { name: string; slugBase?: strin
   const id = `org-${randomUUID().replace(/-/g, "").slice(0, 20)}`;
   const base = slugifyOrganizationName(input.slugBase || name);
   const slug = `${base}-${id.slice(-6)}`;
-  const rows = await sql()`
-    insert into organizations(id, name, slug)
-    values (${id}, ${name}, ${slug})
-    returning id, name, slug, created_at
-  `;
-  return mapOrg(rows[0] as Record<string, unknown>);
-}
-
-export async function ensureDefaultExchangeRates(organizationId: string) {
-  await ensureDb();
-  await sql()`
-    insert into exchange_rates(organization_id, currency, rate) values
-      (${organizationId}, 'NGN', 1)
-    on conflict (organization_id, currency) do nothing
-  `;
+  return sql().begin(async (db) => {
+    const rows = await db`
+      insert into organizations(id, name, slug)
+      values (${id}, ${name}, ${slug})
+      returning id, name, slug, created_at
+    `;
+    await db`
+      insert into exchange_rates(organization_id, currency, rate)
+      values (${id}, 'NGN', 1)
+    `;
+    return mapOrg(rows[0] as Record<string, unknown>);
+  });
 }

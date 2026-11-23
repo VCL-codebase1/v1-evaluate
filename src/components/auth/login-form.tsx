@@ -52,8 +52,8 @@ export function LoginForm() {
       }
 
       const next = new URLSearchParams(window.location.search).get("next");
+      setPending(false);
       router.push(next && next.startsWith("/") && !next.startsWith("//") ? next : "/dashboard");
-      router.refresh();
     } catch {
       setFormError("Unable to sign in. Check your connection and try again.");
       setPending(false);

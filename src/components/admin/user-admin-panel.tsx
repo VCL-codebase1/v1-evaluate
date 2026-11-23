@@ -54,11 +54,11 @@ export function UserAdminPanel() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...form, mustChangePassword: true }),
       });
-      const data = (await res.json()) as { error?: string };
+      const data = (await res.json()) as { error?: string; user?: User };
       if (!res.ok) throw new Error(data.error || "Failed to create user");
       setForm({ email: "", name: "", role: "Representative", password: "" });
-      setLoading(true);
-      await load();
+      const createdUser = data.user;
+      if (createdUser) setUsers((current) => [createdUser, ...current]);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to create user");
     } finally {
@@ -75,10 +75,10 @@ export function UserAdminPanel() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const data = (await res.json()) as { error?: string };
+      const data = (await res.json()) as { error?: string; user?: User };
       if (!res.ok) throw new Error(data.error || "Failed to update user");
-      setLoading(true);
-      await load();
+      const updatedUser = data.user;
+      if (updatedUser) setUsers((current) => current.map((user) => user.id === id ? updatedUser : user));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to update user");
     } finally {
@@ -141,18 +141,18 @@ export function UserAdminPanel() {
                     <td>{u.email}</td>
                     <td>{u.name}</td>
                     <td>
-                      <select value={u.role} disabled={busy === u.id} onChange={(e) => void patchUser(u.id, { role: e.target.value })}>
+                      {u.role === "Super Admin" ? "Super Admin" : <select value={u.role} disabled={busy === u.id} onChange={(e) => void patchUser(u.id, { role: e.target.value })}>
                         {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
-                      </select>
+                      </select>}
                     </td>
                     <td>{u.isActive ? "Active" : "Disabled"}{u.mustChangePassword ? " · must change password" : ""}</td>
                     <td>{u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : "—"}</td>
                     <td>
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                        <button type="button" disabled={busy === u.id} onClick={() => void patchUser(u.id, { isActive: !u.isActive })}>
+                        <button type="button" disabled={busy === u.id || u.role === "Super Admin"} onClick={() => void patchUser(u.id, { isActive: !u.isActive })}>
                           {u.isActive ? "Disable" : "Enable"}
                         </button>
-                        <button type="button" disabled={busy === u.id} onClick={() => void resetPassword(u.id)}>
+                        <button type="button" disabled={busy === u.id || u.role === "Super Admin"} onClick={() => void resetPassword(u.id)}>
                           Reset password
                         </button>
                       </div>

@@ -4,8 +4,6 @@ import { CheckIcon } from "@/components/layout/icons";
 export function AuthShowcase() {
   return (
     <section className="auth-showcase" aria-label="Product preview">
-      <span className="auth-glow auth-glow-top" aria-hidden="true" />
-      <span className="auth-glow auth-glow-stats" aria-hidden="true" />
       <div className="auth-showcase-inner">
         <Logo>V11-Estimate</Logo>
         <div className="auth-copy">

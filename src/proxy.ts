@@ -24,9 +24,7 @@ function hasSupabaseAuthCookie(request: NextRequest) {
 }
 
 export async function proxy(request: NextRequest) {
-  const response = await updateSupabaseSession(request);
   const { pathname } = request.nextUrl;
-
   const hasSession = hasSupabaseAuthCookie(request);
   const isProtected = PROTECTED_PREFIXES.some(
     (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
@@ -40,7 +38,10 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  if (isAuthPath && hasSession) {
+  const auth = hasSession ? await updateSupabaseSession(request) : null;
+  const response = auth?.response ?? NextResponse.next({ request });
+
+  if (isAuthPath && auth?.authenticated) {
     const url = request.nextUrl.clone();
     url.pathname = "/dashboard";
     url.search = "";

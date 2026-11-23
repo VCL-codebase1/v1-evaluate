@@ -27,11 +27,14 @@ export async function PATCH(request: Request, context: Context) {
   if (!existing || existing.organizationId !== session.organizationId) {
     return NextResponse.json({ error: "User not found." }, { status: 404 });
   }
+  if (existing.role === "Super Admin") {
+    return NextResponse.json({ error: "The organization owner cannot be changed here." }, { status: 403 });
+  }
 
   const patch: Parameters<typeof updateUserAdmin>[1] = {};
   if (typeof body?.role === "string") {
     if (!isRole(body.role)) return NextResponse.json({ error: "Select a valid role." }, { status: 400 });
-    if (body.role === "Super Admin" && existing.role !== "Super Admin") {
+    if (body.role === "Super Admin") {
       return NextResponse.json({ error: "Super Admin role cannot be assigned from this action." }, { status: 400 });
     }
     patch.role = body.role;
@@ -68,13 +71,17 @@ export async function PATCH(request: Request, context: Context) {
       }
       if (Object.keys(supaPatch).length > 0) {
         const { error } = await admin.auth.admin.updateUserById(existing.authUserId, supaPatch);
-        if (error) log.warn("admin.user.supabase_update_failed", { userId: id, message: error.message });
+        if (error) {
+          log.warn("admin.user.supabase_update_failed", { userId: id, message: error.message });
+          return NextResponse.json({ error: "Unable to update the user's sign-in account." }, { status: 502 });
+        }
       }
     } catch (error) {
       log.warn("admin.user.supabase_update_error", {
         userId: id,
         message: error instanceof Error ? error.message : String(error),
       });
+      return NextResponse.json({ error: "Unable to update the user's sign-in account." }, { status: 502 });
     }
   }
 

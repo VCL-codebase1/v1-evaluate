@@ -18,7 +18,7 @@
   --icon-idle: #1c2842;
   --icon-idle-hover: #28385c;
   --danger: #d92d20;
-  --shadow-card: 0 1.875rem 3.75rem 0 #050a2859;
+  --shadow-card: 0 0.75rem 2rem 0 #10233b1c;
   --shadow-pill: 0 1.125rem 2.5rem 0 #050a2859;
   --shadow-icon: 0 0.1875rem 0.6563rem 0.375rem #00000040;
   --shadow-header: 0 0.25rem 0.25rem 0 #00000040;
@@ -32,7 +32,7 @@
   --gradient-brand-active: linear-gradient(96.34deg, #243de0 0%, #583ed2 100%);
   --gradient-sidebar-active: linear-gradient(90.02deg, #334bfc 0.02%, #654ce9 99.98%);
   --sidebar-bg: linear-gradient(90deg, #09152a 0%, #121e52 100%);
-  --radius-panel: 3.5rem;
+  --radius-panel: 2rem;
   --radius-control: 1rem;
   --radius-squircle: 1rem;
   --font: var(--font-jakarta), "Plus Jakarta Sans", sans-serif;
@@ -278,32 +278,6 @@ button {
   border-top-right-radius: var(--radius-panel);
   border-bottom-right-radius: var(--radius-panel);
   color: var(--white);
-}
-
-.auth-glow {
-  position: absolute;
-  z-index: 0;
-  pointer-events: none;
-  border-radius: 50%;
-  opacity: 0.9;
-  -webkit-filter: blur(6.5rem);
-  filter: blur(6.5rem);
-}
-
-.auth-glow-top {
-  width: 40.18%;
-  aspect-ratio: 1;
-  top: -7.16%;
-  left: 66.55%;
-  background: #2f4bff;
-}
-
-.auth-glow-stats {
-  width: 27.5%;
-  aspect-ratio: 0.821;
-  bottom: -8%;
-  left: 20%;
-  background: #7c5cff;
 }
 
 .auth-showcase-inner {
@@ -1144,16 +1118,6 @@ body.nav-open {
   padding: 1.75rem;
 }
 
-.mascot {
-  position: fixed;
-  right: 0;
-  bottom: 0;
-  width: min(20vh, 14.5rem);
-  height: min(36vh, 23.5rem);
-  z-index: 20;
-  pointer-events: none;
-}
-
 .page-stack {
   display: flex;
   flex-direction: column;
@@ -1435,11 +1399,6 @@ body.nav-open {
   text-decoration: underline;
 }
 
-.mascot-img {
-  object-fit: contain;
-  object-position: bottom center;
-}
-
 .sheet-toolbar,
 .sheet-actions,
 .approval-footer,
@@ -1586,7 +1545,7 @@ body.nav-open {
   font-weight: 700;
   line-height: 1;
   text-align: right;
-  background: linear-gradient(90.02deg, #334bfc 0.02%, #654ce9 99.98%);
+  background: var(--gradient-sidebar-active);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -1713,7 +1672,7 @@ body.nav-open {
 }
 
 .approval-table td.approval-grand {
-  color: #2f4bff;
+  color: var(--link);
   font-size: 2rem;
   font-weight: 700;
   line-height: 1.45;
@@ -2095,10 +2054,6 @@ body.nav-open {
     width: 100%;
   }
 
-  .mascot {
-    display: none;
-  }
-
   .notice-card {
     min-height: 0;
   }
@@ -2396,7 +2351,7 @@ body.nav-open {
 }
 
 .breakdown-grand strong {
-  color: #2f4bff;
+  color: var(--link);
   font-size: 28px;
   font-weight: 700;
   line-height: 1;

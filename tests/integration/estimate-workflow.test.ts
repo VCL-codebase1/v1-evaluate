@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { sql } from "@/lib/db/client";
 import { createEstimate, decideSheet, getEstimate, getSheet, saveSheet, submitSheet } from "@/lib/db";
+import { createOrganization } from "@/lib/auth/organizations";
+import { checkSignupThrottles } from "@/lib/auth/throttle";
 
 const org = randomUUID();
 const owner = randomUUID();
@@ -47,4 +49,32 @@ it("serializes submissions and decisions and rolls back a decision when its audi
   await decideSheet(id, org, "approved", "Director", "Sales Director");
   expect(await getEstimate(id, org)).toMatchObject({ reviewStage: "approved", workflowStep: "final" });
   expect(await getSheet(id, org)).toMatchObject({ reviewStage: "approved" });
+});
+
+it("creates an organization with its base exchange rate", async () => {
+  const created = await createOrganization({ name: "New tenant" });
+  try {
+    const rows = await sql()`
+      select currency, rate from exchange_rates where organization_id = ${created.id}
+    `;
+    expect(rows).toMatchObject([{ currency: "NGN", rate: "1" }]);
+  } finally {
+    await sql()`delete from organizations where id = ${created.id}`;
+  }
+});
+
+it("checks signup IP and email throttles in one lookup", async () => {
+  const subject = randomUUID();
+  const ip = { scope: "signup:ip", subject, windowMs: 60_000, maxFailures: 5, blockMs: 60_000 };
+  const email = { ...ip, scope: "signup:email" };
+  try {
+    expect(await checkSignupThrottles(ip, email)).toMatchObject({ blocked: false });
+    await sql()`
+      insert into auth_throttle(scope, subject, fail_count, window_started_at, blocked_until)
+      values (${email.scope}, ${subject}, 5, now(), now() + interval '1 minute')
+    `;
+    expect(await checkSignupThrottles(ip, email)).toMatchObject({ blocked: true });
+  } finally {
+    await sql()`delete from auth_throttle where subject = ${subject}`;
+  }
 });

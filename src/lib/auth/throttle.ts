@@ -34,6 +34,25 @@ export async function checkThrottle(config: ThrottleConfig) {
   return { blocked: false as const, retryAfterSec: 0 };
 }
 
+export async function checkSignupThrottles(ip: ThrottleConfig, email: ThrottleConfig) {
+  await ensureDb();
+  const rows = await sql()`
+    select scope, subject, blocked_until
+    from auth_throttle
+    where (scope = ${ip.scope} and subject = ${ip.subject})
+       or (scope = ${email.scope} and subject = ${email.subject})
+  `;
+  const now = Date.now();
+  for (const config of [ip, email]) {
+    const row = rows.find((entry) => entry.scope === config.scope && entry.subject === config.subject);
+    const blockedUntil = row?.blocked_until ? new Date(row.blocked_until as string).getTime() : 0;
+    if (blockedUntil > now) {
+      return { blocked: true as const, retryAfterSec: Math.max(1, Math.ceil((blockedUntil - now) / 1000)) };
+    }
+  }
+  return { blocked: false as const, retryAfterSec: 0 };
+}
+
 export async function registerFailure(config: ThrottleConfig) {
   await ensureDb();
   const now = new Date();

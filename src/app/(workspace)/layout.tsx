@@ -1,13 +1,13 @@
 import { cookies } from "next/headers";
 import { Suspense, type ReactNode } from "react";
-import { Mascot } from "@/components/brand/mascot";
 import { SessionTopbar } from "@/components/layout/session-topbar";
 import { Sidebar } from "@/components/layout/sidebar";
 import { TopbarFallback } from "@/components/layout/topbar";
+import { getSession } from "@/lib/session";
 
 async function SidebarFromCookie() {
-  const store = await cookies();
-  return <Sidebar initialCollapsed={store.get("v11_sidebar")?.value === "collapsed"} />;
+  const [store, session] = await Promise.all([cookies(), getSession()]);
+  return <Sidebar initialCollapsed={store.get("v11_sidebar")?.value === "collapsed"} initialRole={session?.role ?? ""} />;
 }
 
 export default function WorkspaceLayout({ children }: { children: ReactNode }) {
@@ -21,7 +21,6 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }) {
           <SessionTopbar />
         </Suspense>
         <div className="app-content">{children}</div>
-        <Mascot />
       </div>
     </div>
   );
