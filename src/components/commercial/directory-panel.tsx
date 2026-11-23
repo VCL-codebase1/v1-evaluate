@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
-import type { DirectoryKind, DirectoryRecord } from "@/lib/db/commercial";
+import type { DirectoryKind, DirectoryRecord } from "@/lib/commercial-types";
 
 export function DirectoryPanel() {
   const [kind, setKind] = useState<DirectoryKind>("client");

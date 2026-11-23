@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
-import { DEFAULT_RULES, type PricingRules } from "@/lib/db/commercial";
+import { DEFAULT_RULES, type PricingRules } from "@/lib/commercial-types";
 
 const FIELDS: { key: keyof PricingRules; label: string }[] = [
   { key: "airBank", label: "Air/Sea bank charges %" },

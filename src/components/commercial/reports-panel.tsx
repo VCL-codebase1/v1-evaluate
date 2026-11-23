@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { formatGrandTotal } from "@/lib/estimation";
-import type { QuotationDraft } from "@/lib/db/commercial";
+import type { QuotationDraft } from "@/lib/commercial-types";
 import type { EstimateRecord, SheetLine } from "@/lib/types";
 
 type Tab = "reports" | "quotations";

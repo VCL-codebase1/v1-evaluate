@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import type { ReactNode } from "react";
 import { Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 
@@ -18,7 +19,7 @@ export const metadata: Metadata = {
     "One controlled workspace for sourcing costs, exchange rates, markup and approvals.",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" className={`${jakarta.variable} ${jakarta.className} h-full antialiased`}>
       <body className="min-h-full">{children}</body>
