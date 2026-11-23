@@ -1,4 +1,5 @@
 import { dbReady, sql } from "@/lib/db/client";
+import { log } from "@/lib/observability/logger";
 
 const READY_TIMEOUT_MS = 10000;
 
@@ -27,15 +28,13 @@ export async function ensureDb() {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (/schema_migrations|relation .* does not exist/i.test(message)) {
-        throw new Error(
-          "Database schema is not initialized. Run `npm run db:migrate` before starting the application.",
-        );
-      }
-      if (/timed out/i.test(message)) {
-        throw new Error("Database readiness check timed out.");
-      }
-      throw new Error(`Database is unavailable: ${message}`);
+      const reason = /schema_migrations|relation .* does not exist|migrations are not current/i.test(message)
+        ? "migrations_not_current"
+        : /timed out/i.test(message)
+          ? "readiness_timeout"
+          : "database_unavailable";
+      log.error("database.readiness_failed", { reason, message });
+      throw new Error("The service is temporarily unavailable. Please try again shortly.");
     }
   });
 }

@@ -189,6 +189,12 @@ export async function POST(request: Request) {
     const message = error instanceof Error ? error.message : "Unable to create organization account.";
     log.warn("auth.signup.failed", { email, ip: meta.ip, message });
     const lower = message.toLowerCase();
+    if (lower.includes("temporarily unavailable")) {
+      return NextResponse.json(
+        { error: "Account creation is temporarily unavailable. Please try again shortly." },
+        { status: 503 },
+      );
+    }
     if (lower.includes("timed out")) {
       return NextResponse.json(
         { error: "Account creation is taking too long. Please try again." },
