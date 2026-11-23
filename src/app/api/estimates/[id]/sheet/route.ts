@@ -24,7 +24,7 @@ export async function PUT(request: Request, context: Context) {
   const { id } = await context.params;
   const estimate = await getEstimate(id, auth.session.organizationId);
   if (!estimate) return NextResponse.json({ error: "Estimate not found." }, { status: 404 });
-  if (!isOrgAdmin(auth.session.role) && auth.session.role !== "Line Manager" && estimate.originator !== auth.session.name) {
+  if (!isOrgAdmin(auth.session.role) && auth.session.role !== "Line Manager" && estimate.ownerUserId !== auth.session.userId) {
     return NextResponse.json({ error: "You do not have access to edit this estimate." }, { status: 403 });
   }
   const body = (await request.json().catch(() => null)) as { lines?: Partial<SheetLine>[] } | null;
@@ -32,7 +32,7 @@ export async function PUT(request: Request, context: Context) {
     return NextResponse.json({ error: "Send the sheet lines." }, { status: 400 });
   }
 
-  const result = await saveSheet(id, auth.session.organizationId, body.lines, auth.session.version, auth.session.role);
+  const result = await saveSheet(id, auth.session.organizationId, body.lines, auth.session.version, auth.session.email);
   if ("error" in result) {
     const status = result.error === "Estimate not found." ? 404 : 409;
     return NextResponse.json({ error: result.error }, { status });

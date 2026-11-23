@@ -1,5 +1,9 @@
+import type { ISql } from "postgres";
+import { getPricingRules } from "@/lib/db/commercial";
+import { priceQuoteLines } from "@/lib/quote-analysis";
+import type { PricingRules } from "@/lib/commercial-types";
 import { WORKFLOW_STEPS } from "@/lib/constants";
-import { DEFAULT_RATES, summarizeSheet } from "@/lib/estimation";
+import { DEFAULT_RATES } from "@/lib/estimation";
 import { ensureDb } from "@/lib/db/schema";
 import { sql } from "@/lib/db/client";
 import type {
@@ -50,6 +54,7 @@ function mapEstimate(row: Record<string, unknown>): EstimateRecord {
     deadline: String(row.deadline ?? ""),
     accountManager: String(row.account_manager ?? ""),
     originator: String(row.originator ?? ""),
+    ownerUserId: row.owner_user_id == null ? null : String(row.owner_user_id),
     description: String(row.description ?? ""),
     remarks: String(row.remarks ?? ""),
     attachments,
@@ -78,22 +83,22 @@ function mapSheet(row: Record<string, unknown>): SheetRecord {
     lines: lines.map((l) => ({ ...l })),
     submittedAt: toIso(row.submitted_at),
     submittedBy: row.submitted_by ? String(row.submitted_by) : null,
+    pricingSnapshot: row.pricing_snapshot && typeof row.pricing_snapshot === "object" ? row.pricing_snapshot as PricingRules : null,
+    rateSnapshot: row.rate_snapshot && typeof row.rate_snapshot === "object" ? row.rate_snapshot as ExchangeRateTable : null,
   };
 }
 
-async function nextCounter(name: "estimate" | "audit") {
+async function nextCounter(name: "estimate" | "audit", db: ISql = sql()) {
   await ensureDb();
-  const db = sql();
   const rows = await db`
     update counters set value = value + 1 where name = ${name} returning value
   `;
   return Number(rows[0]?.value ?? 1);
 }
 
-export async function recordAudit(event: Omit<AuditEvent, "id" | "at"> & { organizationId: string }) {
+export async function recordAudit(event: Omit<AuditEvent, "id" | "at"> & { organizationId: string }, db: ISql = sql()) {
   await ensureDb();
-  const db = sql();
-  const seq = await nextCounter("audit");
+  const seq = await nextCounter("audit", db);
   const id = `AUD-${String(seq).padStart(3, "0")}`;
   const rows = await db`
     insert into audit_events(event_ref, organization_id, actor, role, action, estimate_id, detail)
@@ -139,7 +144,8 @@ export async function createEstimate(input: {
   dateReceived?: string;
   deadline?: string;
   accountManager?: string;
-  originator?: string;
+  originator: string;
+  ownerUserId: string;
   description?: string;
   remarks?: string;
   attachments?: string[];
@@ -154,12 +160,12 @@ export async function createEstimate(input: {
   const rows = await sql()`
     insert into estimates(
       id, organization_id, title, client_name, tender_number, contact, department, date_received, deadline,
-      account_manager, originator, description, remarks, attachments, mode, status,
+      account_manager, originator, owner_user_id, description, remarks, attachments, mode, status,
       review_stage, workflow_step, version
     ) values (
       ${id}, ${input.organizationId}, ${text(input.title)}, ${text(input.clientName)}, ${text(input.tenderNumber)},
       ${text(input.contact)}, ${text(input.department)}, ${text(input.dateReceived)}, ${text(input.deadline)},
-      ${text(input.accountManager)}, ${text(input.originator)}, ${text(input.description)}, ${text(input.remarks)},
+      ${text(input.accountManager)}, ${text(input.originator)}, ${input.ownerUserId}, ${text(input.description)}, ${text(input.remarks)},
       ${sql().json(attachments)}::jsonb, ${text(input.mode) || "Air freight"}, ${input.status ?? "pending"},
       ${"draft"}, ${"created"}, ${"v1"}
     ) returning *
@@ -177,23 +183,16 @@ export async function createEstimate(input: {
 export async function updateEstimate(
   id: string,
   organizationId: string,
-  patch: Partial<Pick<EstimateRecord, "title" | "clientName" | "status" | "reviewStage" | "totalNgn" | "remarks">>,
+  patch: Partial<Pick<EstimateRecord, "title" | "clientName" | "remarks">>,
 ) {
   await ensureDb();
-  const current = await getEstimate(id, organizationId);
-  if (!current) return null;
-  const title = patch.title != null ? text(patch.title) : current.title;
-  const clientName = patch.clientName != null ? text(patch.clientName) : current.clientName;
-  const remarks = patch.remarks != null ? text(patch.remarks) : current.remarks;
-  const status = patch.status ?? current.status;
-  const reviewStage = patch.reviewStage ?? current.reviewStage;
-  const totalNgn = patch.totalNgn !== undefined ? patch.totalNgn : current.totalNgn;
   const rows = await sql()`
     update estimates set
-      title = ${title}, client_name = ${clientName}, remarks = ${remarks},
-      status = ${status}, review_stage = ${reviewStage}, total_ngn = ${totalNgn},
+      title = coalesce(${patch.title == null ? null : text(patch.title)}, title),
+      client_name = coalesce(${patch.clientName == null ? null : text(patch.clientName)}, client_name),
+      remarks = coalesce(${patch.remarks == null ? null : text(patch.remarks)}, remarks),
       updated_at = now()
-    where id = ${id} and organization_id = ${organizationId}
+    where id = ${id} and organization_id = ${organizationId} and review_stage in ('draft', 'returned')
     returning *
   `;
   return rows[0] ? mapEstimate(rows[0] as Record<string, unknown>) : null;
@@ -201,7 +200,7 @@ export async function updateEstimate(
 
 export async function deleteEstimate(id: string, organizationId: string) {
   await ensureDb();
-  const rows = await sql()`delete from estimates where id = ${id} and organization_id = ${organizationId} returning id`;
+  const rows = await sql()`delete from estimates where id = ${id} and organization_id = ${organizationId} and review_stage in ('draft', 'returned') returning id`;
   return rows.length > 0;
 }
 
@@ -210,18 +209,17 @@ export async function getSheet(id: string, organizationId: string, version = "v1
   // Ensure estimate belongs to org
   const est = await getEstimate(id, organizationId);
   if (!est) return null;
-  const rows = await sql()`select * from estimate_sheets where estimate_id = ${id} limit 1`;
-  return rows[0] ? mapSheet(rows[0] as Record<string, unknown>) : emptySheet(id, version);
+  return readSheet(sql(), id, version);
 }
 
 const EMPTY_FLOATATION: ExchangeFloatation = { USD: 0, EUR: 0, GBP: 0 };
 
-export async function getExchangeRateSettings(organizationId: string): Promise<{
+export async function getExchangeRateSettings(organizationId: string, db: ISql = sql()): Promise<{
   rates: ExchangeRateTable;
   floatation: ExchangeFloatation;
 }> {
   await ensureDb();
-  const rows = await sql()`select currency, rate, floatation from exchange_rates where organization_id = ${organizationId}`;
+  const rows = await db`select currency, rate, floatation from exchange_rates where organization_id = ${organizationId}`;
   const rates: ExchangeRateTable = { ...DEFAULT_RATES };
   const floatation: ExchangeFloatation = { ...EMPTY_FLOATATION };
   for (const row of rows) {
@@ -244,8 +242,19 @@ export async function getExchangeRates(organizationId: string): Promise<Exchange
 export async function sheetResponse(id: string, organizationId: string, version = "v1") {
   const sheet = await getSheet(id, organizationId, version);
   if (!sheet) return null;
-  const rates = await getExchangeRates(organizationId);
-  return { ...sheet, rates, summary: summarizeSheet(sheet.lines, rates) };
+  const rates = sheet.rateSnapshot ?? await getExchangeRates(organizationId);
+  const rules = sheet.pricingSnapshot ?? await getPricingRules(organizationId);
+  return { ...sheet, rates, rules, summary: quoteSummary(sheet.lines, rates, rules) };
+}
+
+function quoteSummary(lines: SheetLine[], rates: ExchangeRateTable, rules: PricingRules) {
+  const priced = priceQuoteLines(lines, rates, rules);
+  return {
+    lines: priced,
+    itemCount: priced.filter((line) => line.item.trim()).length,
+    grandTotalNgn: Math.round(priced.reduce((sum, line) => sum + line.extendedNgn, 0) * 100) / 100,
+    soncapUsd: priced.reduce((sum, line) => sum + line.soncap, 0),
+  };
 }
 
 function cleanLine(line: Partial<SheetLine>, index: number): SheetLine | null {
@@ -279,6 +288,16 @@ function cleanLine(line: Partial<SheetLine>, index: number): SheetLine | null {
     delivery: text(line.delivery),
     warehouse: text(line.warehouse),
     markup: text(line.markup),
+    freightType: line.freightType === "Courier" ? "Courier" : "Airport",
+    installation: text(line.installation),
+    applyVat: line.applyVat === true,
+    applySoncap: line.applySoncap === true,
+    customsRate: text(line.customsRate),
+    agencyRate: text(line.agencyRate),
+    shippingRate: text(line.shippingRate),
+    bank1Amount: text(line.bank1Amount),
+    localType: line.localType === "Purchase" ? "Purchase" : "Standard",
+    soncapAmount: text(line.soncapAmount),
   };
 }
 
@@ -290,12 +309,17 @@ function requireConfiguredRates(lines: SheetLine[], rates: ExchangeRateTable) {
   }
 }
 
-async function syncEstimate(id: string, organizationId: string, totalNgn: number, stage: ReviewStage) {
-  const status = stage === "approved" ? "approved" : stage === "returned" ? "rejected" : "pending";
-  await sql()`
-    update estimates set total_ngn = ${totalNgn}, review_stage = ${stage}, status = ${status}, updated_at = now()
-    where id = ${id} and organization_id = ${organizationId}
+async function lockEstimate(db: ISql, id: string, organizationId: string) {
+  const rows = await db`
+    select workflow_step from estimates
+    where id = ${id} and organization_id = ${organizationId} for update
   `;
+  return rows[0];
+}
+
+async function readSheet(db: ISql, id: string, version: string) {
+  const rows = await db`select * from estimate_sheets where estimate_id = ${id}`;
+  return rows[0] ? mapSheet(rows[0]) : emptySheet(id, version);
 }
 
 export async function saveSheet(
@@ -306,112 +330,129 @@ export async function saveSheet(
   actor = "Representative",
 ) {
   await ensureDb();
-  const current = await getSheet(id, organizationId, version);
-  if (!current) return { error: "Estimate not found." as const };
-  if (current.reviewStage === "in_review" || current.reviewStage === "approved") {
-    return { error: "This estimate is locked while it is in review." as const };
-  }
+  const rules = await getPricingRules(organizationId);
+  return sql().begin(async (db) => {
+    if (!(await lockEstimate(db, id, organizationId))) return { error: "Estimate not found." as const };
+    const current = await readSheet(db, id, version);
+    if (current.reviewStage === "in_review" || current.reviewStage === "approved") {
+      return { error: "This estimate is locked while it is in review." as const };
+    }
 
-  const nextLines = lines
-    .map((line, index) => cleanLine(line, index))
-    .filter((line): line is SheetLine => Boolean(line));
-  const rates = await getExchangeRates(organizationId);
-  requireConfiguredRates(nextLines, rates);
-  const previousIds = new Set(current.lines.map((line) => line.id));
-  const nextStage: ReviewStage = current.reviewStage === "returned" ? "draft" : current.reviewStage;
-  const sheetVersion = current.version || version;
+    const nextLines = lines
+      .map((line, index) => cleanLine(line, index))
+      .filter((line): line is SheetLine => Boolean(line));
+    const { rates } = await getExchangeRateSettings(organizationId, db);
+    requireConfiguredRates(nextLines, rates);
+    const previousIds = new Set(current.lines.map((line) => line.id));
+    const nextStage: ReviewStage = current.reviewStage === "returned" ? "draft" : current.reviewStage;
+    const sheetVersion = current.version || version;
 
-  await sql()`
-    insert into estimate_sheets(estimate_id, version, review_stage, lines, submitted_at, submitted_by, updated_at)
-    values (${id}, ${sheetVersion}, ${nextStage}, ${sql().json(nextLines)}::jsonb, ${current.submittedAt}, ${current.submittedBy}, now())
-    on conflict (estimate_id) do update set
-      version = excluded.version,
-      review_stage = excluded.review_stage,
-      lines = excluded.lines,
-      submitted_at = excluded.submitted_at,
-      submitted_by = excluded.submitted_by,
-      updated_at = now()
-  `;
+    await db`
+      insert into estimate_sheets(estimate_id, version, review_stage, lines, submitted_at, submitted_by, pricing_snapshot, rate_snapshot, updated_at)
+      values (${id}, ${sheetVersion}, ${nextStage}, ${db.json(nextLines)}::jsonb, ${current.submittedAt}, ${current.submittedBy}, ${db.json(rules)}::jsonb, ${db.json(rates)}::jsonb, now())
+      on conflict (estimate_id) do update set
+        version = excluded.version,
+        review_stage = excluded.review_stage,
+        lines = excluded.lines,
+        submitted_at = excluded.submitted_at,
+        submitted_by = excluded.submitted_by,
+        pricing_snapshot = excluded.pricing_snapshot,
+        rate_snapshot = excluded.rate_snapshot,
+        updated_at = now()
+    `;
 
-  const summary = summarizeSheet(nextLines, rates);
-  await syncEstimate(id, organizationId, summary.grandTotalNgn, nextStage);
+    const summary = quoteSummary(nextLines, rates, rules);
+    await db`
+      update estimates set total_ngn = ${summary.grandTotalNgn}, review_stage = ${nextStage},
+          status = 'pending', updated_at = now()
+      where id = ${id} and organization_id = ${organizationId}
+    `;
 
-  const addedCount = nextLines.filter((line) => line.item.trim() && !previousIds.has(line.id)).length;
-  const detail =
-    addedCount > 0
-      ? `${summary.itemCount} item${summary.itemCount === 1 ? "" : "s"} (${addedCount} added)`
-      : `${summary.itemCount} item${summary.itemCount === 1 ? "" : "s"}`;
-  await recordAudit({
-    organizationId,
-    actor,
-    action: "sheet.saved",
-    estimateId: id,
-    detail,
-  });
-
-  return {
-    sheet: {
+    const addedCount = nextLines.filter((line) => line.item.trim() && !previousIds.has(line.id)).length;
+    const detail =
+      addedCount > 0
+        ? `${summary.itemCount} item${summary.itemCount === 1 ? "" : "s"} (${addedCount} added)`
+        : `${summary.itemCount} item${summary.itemCount === 1 ? "" : "s"}`;
+    await recordAudit({
+      organizationId,
+      actor,
+      action: "sheet.saved",
       estimateId: id,
-      version: sheetVersion,
-      reviewStage: nextStage,
-      lines: nextLines,
-      submittedAt: current.submittedAt,
-      submittedBy: current.submittedBy,
-      rates,
-      summary,
-    },
-  };
+      detail,
+    }, db);
+
+    return {
+      sheet: {
+        estimateId: id,
+        version: sheetVersion,
+        reviewStage: nextStage,
+        lines: nextLines,
+        submittedAt: current.submittedAt,
+        submittedBy: current.submittedBy,
+        rates,
+        summary,
+      },
+    };
+  });
 }
 
 export async function submitSheet(id: string, organizationId: string, actor: string, version = "v1") {
   await ensureDb();
-  const current = await getSheet(id, organizationId, version);
-  if (!current) return { error: "Estimate not found." as const };
-  const named = current.lines.filter((line) => line.item.trim());
-  if (named.length === 0) {
-    return { error: "Add an item before submitting for review." as const };
-  }
-  if (current.reviewStage === "in_review" || current.reviewStage === "approved") {
-    return { error: "This estimate has already been submitted." as const };
-  }
+  const rules = await getPricingRules(organizationId);
+  return sql().begin(async (db) => {
+    if (!(await lockEstimate(db, id, organizationId))) return { error: "Estimate not found." as const };
+    const current = await readSheet(db, id, version);
+    const effectiveRules = current.pricingSnapshot ?? rules;
+    const named = current.lines.filter((line) => line.item.trim());
+    if (named.length === 0) {
+      return { error: "Add an item before submitting for review." as const };
+    }
+    if (current.reviewStage === "in_review" || current.reviewStage === "approved") {
+      return { error: "This estimate has already been submitted." as const };
+    }
 
-  const rates = await getExchangeRates(organizationId);
-  requireConfiguredRates(named, rates);
+    const { rates } = await getExchangeRateSettings(organizationId, db);
+    requireConfiguredRates(named, rates);
 
-  const submittedAt = new Date().toISOString();
-  const sheetVersion = current.version || version;
-  await sql()`
-    insert into estimate_sheets(estimate_id, version, review_stage, lines, submitted_at, submitted_by, updated_at)
-    values (${id}, ${sheetVersion}, ${"in_review"}, ${sql().json(current.lines)}::jsonb, ${submittedAt}, ${actor}, now())
-    on conflict (estimate_id) do update set
-      version = excluded.version,
-      review_stage = excluded.review_stage,
-      submitted_at = excluded.submitted_at,
-      submitted_by = excluded.submitted_by,
-      updated_at = now()
-  `;
-  const summary = summarizeSheet(current.lines, rates);
-  await syncEstimate(id, organizationId, summary.grandTotalNgn, "in_review");
-  await recordAudit({
-    organizationId,
-    actor,
-    action: "sheet.submitted",
-    estimateId: id,
-    detail: `${sheetVersion} sent for line manager review`,
-  });
-
-  return {
-    sheet: {
+    const submittedAt = new Date().toISOString();
+    const sheetVersion = current.version || version;
+    await db`
+      insert into estimate_sheets(estimate_id, version, review_stage, lines, submitted_at, submitted_by, updated_at)
+      values (${id}, ${sheetVersion}, ${"in_review"}, ${db.json(current.lines)}::jsonb, ${submittedAt}, ${actor}, now())
+      on conflict (estimate_id) do update set
+        version = excluded.version,
+        review_stage = excluded.review_stage,
+        submitted_at = excluded.submitted_at,
+        submitted_by = excluded.submitted_by,
+        updated_at = now()
+    `;
+    const summary = quoteSummary(current.lines, rates, effectiveRules);
+    await db`
+      update estimates set review_stage = 'in_review', workflow_step = 'line_manager', status = 'pending',
+          total_ngn = ${summary.grandTotalNgn}, submitted_at = ${submittedAt}, submitted_by = ${actor}, updated_at = now()
+      where id = ${id} and organization_id = ${organizationId}
+    `;
+    await recordAudit({
+      organizationId,
+      actor,
+      action: "sheet.submitted",
       estimateId: id,
-      version: sheetVersion,
-      reviewStage: "in_review" as ReviewStage,
-      lines: current.lines,
-      submittedAt,
-      submittedBy: actor,
-      rates,
-      summary,
-    },
-  };
+      detail: `${sheetVersion} sent for line manager review`,
+    }, db);
+
+    return {
+      sheet: {
+        estimateId: id,
+        version: sheetVersion,
+        reviewStage: "in_review" as ReviewStage,
+        lines: current.lines,
+        submittedAt,
+        submittedBy: actor,
+        rates,
+        summary,
+      },
+    };
+  });
 }
 
 export async function decideSheet(
@@ -422,63 +463,59 @@ export async function decideSheet(
   actorRole: string,
 ) {
   await ensureDb();
-  // Verify org ownership
-  const owned = await getEstimate(id, organizationId);
-  if (!owned) return { error: "Estimate not found." as const };
+  const rules = await getPricingRules(organizationId);
+  return sql().begin(async (db) => {
+    const estimate = await lockEstimate(db, id, organizationId);
+    if (!estimate) return { error: "Estimate not found." as const };
+    const workflowStep = String(estimate.workflow_step);
+    const requiredRole = workflowStep !== "sales_director" ? "Line Manager" : "Sales Director";
+    if (actorRole !== requiredRole && actorRole !== "Admin" && actorRole !== "Super Admin") {
+      return { error: `${requiredRole} must decide this step.` as const };
+    }
 
-  const estimateRows = await sql()`
-    select workflow_step from estimates where id = ${id} and organization_id = ${organizationId} limit 1
-  `;
-  const workflowStep = String(estimateRows[0]?.workflow_step ?? "created");
-  const requiredRole = workflowStep === "created" ? "Line Manager" : "Sales Director";
-  if (actorRole !== requiredRole && actorRole !== "Admin" && actorRole !== "Super Admin") {
-    return { error: `${requiredRole} must decide this step.` as const };
-  }
-
-  const currentRows = await sql()`select * from estimate_sheets where estimate_id = ${id} limit 1`;
-  const current = currentRows[0] ? mapSheet(currentRows[0] as Record<string, unknown>) : null;
-  const estimate = await getEstimate(id, organizationId);
-  if (!current || !estimate || current.reviewStage !== "in_review") {
-    return { error: "There is no estimate waiting for a decision." as const };
-  }
-  const isFinalApproval = decision === "approved" && workflowStep === "sales_director";
-  const nextStage: ReviewStage = decision === "returned" ? "returned" : isFinalApproval ? "approved" : "in_review";
-  const nextWorkflowStep = decision === "returned" ? "created" : isFinalApproval ? "final" : "sales_director";
-  await sql()`
-    update estimate_sheets set review_stage = ${nextStage}, updated_at = now() where estimate_id = ${id}
-  `;
-  await sql()`
-    update estimates
-    set workflow_step = ${nextWorkflowStep}, review_stage = ${nextStage},
-        status = ${nextStage === "approved" ? "approved" : nextStage === "returned" ? "rejected" : "pending"},
-        updated_at = now()
-    where id = ${id} and organization_id = ${organizationId}
-  `;
-  const rates = await getExchangeRates(organizationId);
-  const summary = summarizeSheet(current.lines, rates);
-  await syncEstimate(id, organizationId, summary.grandTotalNgn, nextStage);
-  await recordAudit({
-    organizationId,
-    actor,
-    action: decision === "returned" ? "sheet.returned" : isFinalApproval ? "sheet.approved" : "sheet.advanced",
-    estimateId: id,
-    detail: decision === "approved"
-      ? isFinalApproval ? "Finally approved by Sales Director" : "Approved by Line Manager; sent to Sales Director"
-      : `Returned by ${actorRole}`,
-  });
-
-  return {
-    sheet: {
+    const current = await readSheet(db, id, "v1");
+    const effectiveRules = current.pricingSnapshot ?? rules;
+    if (current.reviewStage !== "in_review") {
+      return { error: "There is no estimate waiting for a decision." as const };
+    }
+    const isFinalApproval = decision === "approved" && workflowStep === "sales_director";
+    const nextStage: ReviewStage = decision === "returned" ? "returned" : isFinalApproval ? "approved" : "in_review";
+    const nextWorkflowStep = decision === "returned" ? "created" : isFinalApproval ? "final" : "sales_director";
+    const { rates } = await getExchangeRateSettings(organizationId, db);
+    const summary = quoteSummary(current.lines, rates, effectiveRules);
+    await db`
+      update estimate_sheets set review_stage = ${nextStage}, updated_at = now() where estimate_id = ${id}
+    `;
+    await db`
+      update estimates
+      set total_ngn = ${summary.grandTotalNgn}, workflow_step = ${nextWorkflowStep}, review_stage = ${nextStage},
+          status = ${nextStage === "approved" ? "approved" : nextStage === "returned" ? "rejected" : "pending"},
+          updated_at = now()
+      where id = ${id} and organization_id = ${organizationId}
+    `;
+    await recordAudit({
+      organizationId,
+      actor,
+      action: decision === "returned" ? "sheet.returned" : isFinalApproval ? "sheet.approved" : "sheet.advanced",
       estimateId: id,
-      version: current.version,
-      reviewStage: nextStage,
-      lines: current.lines,
-      submittedAt: current.submittedAt,
-      submittedBy: current.submittedBy,
-      rates,
-      summary,
-    },
-  };
+      detail: decision === "approved"
+        ? isFinalApproval ? "Finally approved by Sales Director" : "Approved by Line Manager; sent to Sales Director"
+        : `Returned by ${actorRole}`,
+    }, db);
+
+    return {
+      sheet: {
+        estimateId: id,
+        version: current.version,
+        reviewStage: nextStage,
+        lines: current.lines,
+        submittedAt: current.submittedAt,
+        submittedBy: current.submittedBy,
+        rates,
+        summary,
+      },
+    };
+  });
 }
 
 export async function saveExchangeRates(

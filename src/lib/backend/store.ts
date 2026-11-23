@@ -1,10 +1,9 @@
-import { summarizeSheet } from "@/lib/estimation";
 import {
   createEstimate as createWorkspaceEstimate,
   decideSheet,
   getEstimate as getWorkspaceEstimate,
   getExchangeRates,
-  getSheet,
+  sheetResponse,
   listAudit as listWorkspaceAudit,
   listClients as listWorkspaceClients,
   listEstimates as listWorkspaceEstimates,
@@ -31,6 +30,7 @@ export type ApiEstimate = {
   title: string;
   clientName: string;
   originator: string;
+  ownerUserId: string | null;
   description: string;
   status: "pending" | "approved" | "rejected";
   reviewStage: ReviewStage;
@@ -52,6 +52,7 @@ function toApiEstimate(estimate: NonNullable<Awaited<ReturnType<typeof getWorksp
     title: estimate.title,
     clientName: estimate.clientName,
     originator: estimate.originator,
+    ownerUserId: estimate.ownerUserId,
     description: estimate.description,
     status: estimate.status,
     reviewStage: estimate.reviewStage,
@@ -120,6 +121,7 @@ export async function createEstimate(
     ...input,
     organizationId: actor.organizationId,
     originator: actor.name,
+    ownerUserId: actor.id,
   });
   return toApiEstimate(estimate);
 }
@@ -139,13 +141,13 @@ const workflow = (estimate: ApiEstimate) => {
 };
 
 export async function getSheetView(id: string, organizationId: string) {
-  const [estimate, sheet, rates] = await Promise.all([
+  const [estimate, sheet] = await Promise.all([
     getEstimate(id, organizationId),
-    getSheet(id, organizationId),
-    getExchangeRates(organizationId),
+    sheetResponse(id, organizationId),
   ]);
   if (!estimate || !sheet) return null;
-  const summary = summarizeSheet(sheet.lines, rates);
+  const summary = sheet.summary;
+  const rates = sheet.rates;
   return {
     estimateId: id,
     version: sheet.version,
@@ -168,7 +170,7 @@ export async function saveSheet(id: string, lines: Partial<SheetLine>[], actor: 
 }
 
 export async function submitEstimate(id: string, actor: ApiUser) {
-  return submitSheet(id, actor.organizationId, actor.name, "v1");
+  return submitSheet(id, actor.organizationId, actor.email, "v1");
 }
 
 export async function decideEstimate(id: string, decision: "approved" | "returned", actor: ApiUser) {

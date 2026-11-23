@@ -348,11 +348,6 @@ export function ApprovalPanel() {
                 </tbody>
               </table>
             </div>
-            <p className="breakdown-rules">
-              Rules used: bank 0.25% of base · customs duties 10.5% of (base + freight) · agency 7.5% of base · delivery
-              1.5% of base · markup 30% of (base + freight). Sea freight adds warehouse 12.5% of base plus USD 650 SONCAP
-              split across sea items. Foreign totals are multiplied by the exchange rate.
-            </p>
             <div className="breakdown-grand">
               <span>Grand total (NGN)</span>
               <strong>{formatGrandTotal(activeSheet?.summary?.grandTotalNgn ?? selected?.totalNgn ?? 0)}</strong>

@@ -27,6 +27,7 @@ export type EstimateRecord = {
   deadline: string;
   accountManager: string;
   originator: string;
+  ownerUserId: string | null;
   description: string;
   remarks: string;
   attachments: string[];
@@ -63,6 +64,16 @@ export type SheetLine = {
   delivery?: string;
   warehouse?: string;
   markup?: string;
+  freightType?: "Courier" | "Airport";
+  installation?: string;
+  applyVat?: boolean;
+  applySoncap?: boolean;
+  customsRate?: string;
+  agencyRate?: string;
+  shippingRate?: string;
+  bank1Amount?: string;
+  localType?: "Standard" | "Purchase";
+  soncapAmount?: string;
 };
 
 export type SheetRecord = {
@@ -72,6 +83,8 @@ export type SheetRecord = {
   lines: SheetLine[];
   submittedAt: string | null;
   submittedBy: string | null;
+  pricingSnapshot?: import("@/lib/commercial-types").PricingRules | null;
+  rateSnapshot?: ExchangeRateTable | null;
 };
 
 export type ExchangeRateTable = Record<SheetCurrency, number>;

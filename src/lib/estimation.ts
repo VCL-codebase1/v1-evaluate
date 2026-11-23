@@ -1,6 +1,6 @@
 import type { ExchangeRateTable, SheetCurrency, SheetLine, SourceMode } from "@/lib/types";
-
-export const MARKUP = 0.4;
+import { DEFAULT_RULES, type PricingRules } from "@/lib/commercial-types";
+import { priceQuoteLines } from "@/lib/quote-analysis";
 
 export const DEFAULT_RATES: ExchangeRateTable = {
   NGN: 1,
@@ -8,14 +8,6 @@ export const DEFAULT_RATES: ExchangeRateTable = {
   EUR: 0,
   GBP: 0,
 };
-
-const CHARGES: Record<SourceMode, { bank: number; duty: number | null; agency: number | null }> = {
-  Local: { bank: 0.02, duty: null, agency: null },
-  Air: { bank: 0.0025, duty: 0.105, agency: 0.075 },
-  Sea: { bank: 0.0025, duty: 0.105, agency: 0.075 },
-};
-
-export const SONCAP_USD = 650;
 
 export function currencyFor(source: SourceMode): SheetCurrency {
   if (source === "Air") return "USD";
@@ -34,33 +26,11 @@ export function roundMoney(value: number) {
   return Math.round(value * 100) / 100;
 }
 
-export type ComputedLine = SheetLine & {
-  bank: number;
-  duties: number | null;
-  agency: number | null;
-  totalNgn: number;
-};
-
-export function computeLine(line: SheetLine, rates: ExchangeRateTable = DEFAULT_RATES): ComputedLine {
-  const qty = parseAmount(line.qty);
-  const base = parseAmount(line.base);
-  const freight = parseAmount(line.freight);
-  const msc = parseAmount(line.msc);
-  const charge = CHARGES[line.source] ?? CHARGES.Local;
-  const bank = roundMoney(base * charge.bank);
-  const duties = charge.duty == null ? null : roundMoney(base * charge.duty);
-  const agency = charge.agency == null ? null : roundMoney(base * charge.agency);
-  const foreign = (base + freight + msc) * (1 + MARKUP) + bank + (duties ?? 0) + (agency ?? 0);
-  const totalNgn = roundMoney(foreign * (rates[line.currency] ?? 1) * qty);
-
-  return { ...line, bank, duties, agency, totalNgn };
-}
-
-export function summarizeSheet(lines: SheetLine[], rates: ExchangeRateTable = DEFAULT_RATES) {
-  const computed = lines.map((line) => computeLine(line, rates));
+export function summarizeSheet(lines: SheetLine[], rates: ExchangeRateTable = DEFAULT_RATES, rules: PricingRules = DEFAULT_RULES) {
+  const computed = priceQuoteLines(lines, rates, rules).map((line) => ({ ...line, duties: line.customs, agency: line.agent, totalNgn: line.extendedNgn }));
   const named = computed.filter((line) => line.item.trim());
   const grandTotalNgn = roundMoney(computed.reduce((sum, line) => sum + line.totalNgn, 0));
-  const soncapUsd = named.some((line) => line.source === "Air" || line.source === "Sea") ? SONCAP_USD : 0;
+  const soncapUsd = named.reduce((sum, line) => sum + line.soncap, 0);
 
   return {
     lines: computed,

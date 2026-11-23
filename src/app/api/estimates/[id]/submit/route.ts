@@ -16,10 +16,10 @@ export async function POST(_request: Request, context: Context) {
   const { id } = await context.params;
   const estimate = await getEstimate(id, auth.session.organizationId);
   if (!estimate) return NextResponse.json({ error: "Estimate not found." }, { status: 404 });
-  if (!isOrgAdmin(auth.session.role) && estimate.originator !== auth.session.name) {
+  if (!isOrgAdmin(auth.session.role) && estimate.ownerUserId !== auth.session.userId) {
     return NextResponse.json({ error: "You do not have access to submit this estimate." }, { status: 403 });
   }
-  const result = await submitSheet(id, auth.session.organizationId, auth.session.role, auth.session.version);
+  const result = await submitSheet(id, auth.session.organizationId, auth.session.email, auth.session.version);
   if ("error" in result) {
     const status = result.error === "Estimate not found." ? 404 : 400;
     return NextResponse.json({ error: result.error }, { status });

@@ -59,6 +59,7 @@ export async function POST(request: Request) {
     deadline: body?.deadline,
     accountManager: body?.accountManager,
     originator: session.name,
+    ownerUserId: session.userId,
     description: body?.description,
     remarks: body?.remarks,
     attachments,

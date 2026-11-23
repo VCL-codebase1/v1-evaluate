@@ -12,6 +12,7 @@ import {
   summarizeSheet,
 } from "@/lib/estimation";
 import type { ExchangeRateTable, ReviewStage, SheetCurrency, SheetLine, SourceMode } from "@/lib/types";
+import { DEFAULT_RULES, type PricingRules } from "@/lib/commercial-types";
 
 type SetAll = "Local" | "Air" | "Freight";
 
@@ -59,6 +60,7 @@ export function EstimationSheet({
   const [draft, setDraft] = useState<SheetLine>(() => blankLine("Local"));
   const [setAll, setSetAll] = useState<SetAll>("Local");
   const [rates, setRates] = useState<ExchangeRateTable>(DEFAULT_RATES);
+  const [rules, setRules] = useState<PricingRules>(DEFAULT_RULES);
   const [reviewStage, setReviewStage] = useState<ReviewStage>("draft");
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState<"save" | "submit" | null>(null);
@@ -67,8 +69,8 @@ export function EstimationSheet({
   const locked = reviewStage === "in_review" || reviewStage === "approved";
   const visible = lines.length > 0 ? lines : [draft];
   const summary = useMemo(
-    () => summarizeSheet(lines.length > 0 ? lines : [draft], rates),
-    [lines, draft, rates],
+    () => summarizeSheet(lines.length > 0 ? lines : [draft], rates, rules),
+    [lines, draft, rates, rules],
   );
   const missingRates = [...new Set(
     (lines.length > 0 ? lines : [draft])
@@ -93,11 +95,13 @@ export function EstimationSheet({
       const payload = (await response.json()) as {
         lines: SheetLine[];
         rates: ExchangeRateTable;
+        rules: PricingRules;
         reviewStage: ReviewStage;
       };
       if (!active) return;
       setLines(payload.lines ?? []);
       setRates(payload.rates ?? DEFAULT_RATES);
+      setRules(payload.rules ?? DEFAULT_RULES);
       setReviewStage(payload.reviewStage ?? "draft");
       setLoading(false);
     }
@@ -244,7 +248,7 @@ export function EstimationSheet({
             </thead>
             <tbody>
               {visible.map((line, index) => {
-                const computed = summarizeSheet([line], rates).lines[0];
+                const computed = summarizeSheet([line], rates, rules).lines[0];
                 return (
                   <tr key={line.id}>
                     <td className="sheet-index">{lines.length === 0 ? "#" : index + 1}</td>

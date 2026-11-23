@@ -288,7 +288,7 @@ async function handle(request: Request, context: Context) {
   if (sheetMatch && method === "PUT") {
     const estimate = await getEstimate(sheetMatch[1], user.organizationId);
     if (!estimate) return json({ error: "Estimate not found." }, 404);
-    if (!isOrgAdmin(user.role) && user.role !== "Line Manager" && estimate.originator !== user.name) {
+    if (!isOrgAdmin(user.role) && user.role !== "Line Manager" && estimate.ownerUserId !== user.id) {
       return json({ error: "You do not have access to edit this estimate." }, 403);
     }
     const body = await readJson(request);
@@ -303,7 +303,7 @@ async function handle(request: Request, context: Context) {
     if (!canSubmitEstimate(user.role)) return json({ error: "You do not have access to submit estimates." }, 403);
     const estimate = await getEstimate(submitMatch[1], user.organizationId);
     if (!estimate) return json({ error: "Estimate not found." }, 404);
-    if (!isOrgAdmin(user.role) && estimate.originator !== user.name) {
+    if (!isOrgAdmin(user.role) && estimate.ownerUserId !== user.id) {
       return json({ error: "You do not have access to submit this estimate." }, 403);
     }
     const result = await submitEstimate(submitMatch[1], user);

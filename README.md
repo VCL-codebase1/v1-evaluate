@@ -38,9 +38,15 @@ Use long, random values and keep them private. **Never commit `.env.local` or sh
 - The app expects migrations to be applied (it verifies `schema_migrations` on DB access) rather than mutating schema at runtime.
 - Initial migration (`0001_init`) creates core tables, indexes, default exchange rates, and counters. `0002_production_auth_hardening` adds auth/reset/throttle tables and removes any legacy seeded demo users from existing databases.
 
+Migration `0008_estimate_ownership` stores the creator’s workspace profile ID on new estimates. Legacy estimates stored only a display name. The migration leaves their owner ID empty. For each legacy RFQ (`owner_user_id IS NULL`), confirm the creator against your records before assigning their workspace profile ID from the same organization. Organization admins can still manage those estimates. Historical submissions recorded under a role retain that attribution.
+
+Run `npm run test:db` with `TEST_DATABASE_URL` pointing to a migrated test database to check submission concurrency and approval rollback.
+
 ## Estimation sheet
 
 Representatives use the standard cost sheet. Line managers open **Estimation sheet** and get the BRD columns (manufacturer, model, part number, specification, sourcing, freight method, and the NGN totals). The sheet scrolls sideways; a swipe cue stays up until the table moves. Local items do not receive foreign sourcing charges.
+
+The quote analysis calculation supports the workbook's two local layouts, courier air, airport air, and sea lines. Organization admins set percentage and fixed charge defaults in **Pricing rules**. A quote line can supply freight, other charges, bank 1, delivery, installation, and rate overrides, plus applicable VAT or SONCAP. The same pricing function drives the displayed and saved NGN total. Migration `0009_quote_analysis` adds the mode rules and stores the rules and exchange rates used when a sheet is saved so subsequent rule edits do not recalculate that sheet.
 
 ## Authentication & API notes
 

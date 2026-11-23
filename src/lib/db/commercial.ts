@@ -66,6 +66,7 @@ export async function importDirectory(
 
 function mapRules(row: Record<string, unknown>): PricingRules {
   return {
+    ...DEFAULT_RULES,
     airBank: Number(row.air_bank),
     customs: Number(row.customs),
     agency: Number(row.agency),
@@ -77,6 +78,7 @@ function mapRules(row: Record<string, unknown>): PricingRules {
     localDelivery: Number(row.local_delivery),
     localMarkup: Number(row.local_markup),
     bank1: Number(row.bank1),
+    ...((row.mode_rules && typeof row.mode_rules === "object") ? row.mode_rules as Partial<PricingRules> : {}),
   };
 }
 
@@ -92,11 +94,11 @@ export async function savePricingRules(organizationId: string, rules: PricingRul
   await sql()`
     insert into pricing_rules(
       organization_id, air_bank, customs, agency, delivery, warehouse, markup, soncap,
-      local_bank, local_delivery, local_markup, bank1
+      local_bank, local_delivery, local_markup, bank1, mode_rules
     ) values (
       ${organizationId}, ${rules.airBank}, ${rules.customs}, ${rules.agency}, ${rules.delivery},
       ${rules.warehouse}, ${rules.markup}, ${rules.soncap}, ${rules.localBank}, ${rules.localDelivery},
-      ${rules.localMarkup}, ${rules.bank1}
+      ${rules.localMarkup}, ${rules.bank1}, ${sql().json(rules)}::jsonb
     )
     on conflict (organization_id) do update set
       air_bank = excluded.air_bank,
@@ -109,7 +111,8 @@ export async function savePricingRules(organizationId: string, rules: PricingRul
       local_bank = excluded.local_bank,
       local_delivery = excluded.local_delivery,
       local_markup = excluded.local_markup,
-      bank1 = excluded.bank1
+      bank1 = excluded.bank1,
+      mode_rules = excluded.mode_rules
   `;
   return rules;
 }

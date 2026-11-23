@@ -44,6 +44,9 @@ jobs:
           node-version: "20"
       - run: npm ci
       - run: npm run db:migrate
+      - run: npm run test:db
+        env:
+          TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/v11_estimate
       - run: npm run build
 
   browser:

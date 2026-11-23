@@ -22,7 +22,7 @@ export async function PATCH(request: Request, context: Context) {
   const { id } = await context.params;
   const existing = await getEstimate(id, auth.session.organizationId);
   if (!existing) return NextResponse.json({ error: "Estimate not found." }, { status: 404 });
-  if (!isOrgAdmin(auth.session.role) && existing.originator !== auth.session.name) {
+  if (!isOrgAdmin(auth.session.role) && existing.ownerUserId !== auth.session.userId) {
     return NextResponse.json({ error: "You do not have access to edit this estimate." }, { status: 403 });
   }
   if (existing.reviewStage === "in_review" || existing.reviewStage === "approved") {
@@ -49,7 +49,7 @@ export async function DELETE(_request: Request, context: Context) {
   const { id } = await context.params;
   const existing = await getEstimate(id, auth.session.organizationId);
   if (!existing) return NextResponse.json({ error: "Estimate not found." }, { status: 404 });
-  if (!isOrgAdmin(auth.session.role) && existing.originator !== auth.session.name) {
+  if (!isOrgAdmin(auth.session.role) && existing.ownerUserId !== auth.session.userId) {
     return NextResponse.json({ error: "You do not have access to delete this estimate." }, { status: 403 });
   }
   if (existing.reviewStage === "in_review" || existing.reviewStage === "approved") {
