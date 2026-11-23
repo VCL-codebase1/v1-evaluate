@@ -5,7 +5,7 @@ export function AuthShowcase() {
   return (
     <div className="auth-showcase">
       <div className="auth-showcase-inner">
-        <Logo>V11-Estimate</Logo>
+        <Logo />
         <Image className="auth-art" src="/brand/quotation.svg" width={600} height={440} alt="" />
       </div>
     </div>

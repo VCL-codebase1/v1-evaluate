@@ -10,45 +10,37 @@ const base =
 
 const sizes: Record<Size, string> = {
   sm: "h-10 rounded-lg px-[1.0625rem] text-[0.9375rem] font-semibold tracking-normal",
-  md: "h-11 rounded-full px-4 text-[0.9375rem] font-bold",
-  lg: "h-12 rounded-full px-[1.125rem] text-[1.0625rem] font-bold",
+  md: "h-11 rounded-lg px-4 text-[0.9375rem] font-bold",
+  lg: "h-12 rounded-lg px-[1.125rem] text-[1.0625rem] font-bold",
   xl: "mt-[1.375rem] h-16 w-full rounded-2xl text-[1.3125rem] font-medium max-[47.5rem]:h-[3.25rem] max-[47.5rem]:text-base",
-  hero: "h-[2.125rem] rounded-full px-3.5 text-[0.8125rem] font-semibold shadow-[0_0.25rem_0.75rem_rgba(10,22,40,0.12)]",
+  hero: "h-[2.125rem] rounded-lg px-3.5 text-[0.8125rem] font-semibold shadow-[0_0.25rem_0.75rem_rgba(10,22,40,0.12)]",
 };
 
-function variantClass(variant: Variant, size: Size) {
+function variantClass(variant: Variant) {
   if (variant === "primary") {
-    return cn(
-      "border-[0.0938rem] bg-[image:var(--gradient-brand)] text-white enabled:hover:bg-[image:var(--gradient-brand-hover)] enabled:active:bg-[image:var(--gradient-brand-active)]",
-      size === "sm"
-        ? "shadow-[0_0.25rem_0.75rem_rgba(47,75,255,0.22)]"
-        : "shadow-[0_0.625rem_1.5rem_rgba(47,75,255,0.28)] enabled:hover:shadow-[0_0.875rem_1.75rem_rgba(47,75,255,0.34)]",
-    );
+    return "border bg-[image:var(--gradient-brand)] text-white hover:bg-[image:var(--gradient-brand-hover)] active:bg-[image:var(--gradient-brand-active)]";
   }
 
   if (variant === "white") {
-    return cn(
-      "border-[0.0938rem] bg-white text-[#0e0e0e] enabled:hover:bg-[#f4f7ff] enabled:hover:text-[#2f4bff]",
-      size === "hero" ? "" : "shadow-[0_0.5rem_1.25rem_rgba(10,22,40,0.08)]",
-    );
+    return "border bg-white text-[var(--ink)] hover:bg-[#f4f7ff]";
   }
 
   if (variant === "outline") {
-    return "border-[0.0938rem] border-[#e1e6f2] bg-white text-[#0e0e0e] enabled:hover:border-[#2f4bff] enabled:hover:bg-[#f3f5ff] enabled:hover:text-[#2f4bff]";
+    return "border-[0.0938rem] border-[#e1e6f2] bg-white text-[#0e0e0e] hover:border-[#2f4bff] hover:bg-[#f3f5ff] hover:text-[#2f4bff]";
   }
 
   if (variant === "quiet") {
-    return "border-[0.0938rem] border-transparent bg-transparent text-[#26344e] enabled:hover:bg-[#e9edfa] enabled:hover:text-[#2f4bff]";
+    return "border-[0.0938rem] border-transparent bg-transparent text-[#26344e] hover:bg-[#e9edfa] hover:text-[#2f4bff]";
   }
 
-  return "h-[2.8125rem] rounded-lg border-0 bg-[#da3030] px-[1.375rem] text-[1.0625rem] font-bold tracking-normal text-white shadow-[var(--shadow-signout)] enabled:hover:bg-[#c42828] enabled:active:bg-[#b12222] max-[56.25rem]:h-10 max-[56.25rem]:px-[0.9rem] max-[56.25rem]:text-sm";
+  return "h-[2.8125rem] rounded-lg border-0 bg-[#da3030] px-[1.375rem] text-[1.0625rem] font-bold tracking-normal text-white shadow-[var(--shadow-signout)] hover:bg-[#c42828] enabled:active:bg-[#b12222] max-[56.25rem]:h-10 max-[56.25rem]:px-[0.9rem] max-[56.25rem]:text-sm";
 }
 
 function buttonClass(variant: Variant, size: Size, fill: boolean, className?: string) {
   return cn(
     base,
     variant === "danger" ? "" : sizes[size],
-    variantClass(variant, size),
+    variantClass(variant),
     fill && "max-[47.5rem]:w-full",
     className,
   );

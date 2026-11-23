@@ -7,6 +7,9 @@
   --ink-button: #0e0e0e;
   --muted-on-dark: #d3dbfa;
   --label: #767676;
+  --control-line: #c6cfdd;
+  --control-radius: 0.5rem;
+  --selection-bg: #eef0ff;
   --page: #f7f8fc;
   --line: #e4e9f5;
   --white: #ffffff;
@@ -15,8 +18,6 @@
   --amber-text: #8a5200;
   --amber-bg: #f5c451;
   --link: #2f4bff;
-  --icon-idle: #1c2842;
-  --icon-idle-hover: #28385c;
   --danger: #d92d20;
   --shadow-card: 0 0.75rem 2rem 0 #10233b1c;
   --shadow-pill: 0 1.125rem 2.5rem 0 #050a2859;
@@ -25,13 +26,10 @@
   --shadow-raised: 0 0.1875rem 0.95rem 0.125rem #00000040;
   --shadow-signout: 0 0.125rem 0.4rem 0.0625rem #0000002e;
   --shadow-sidebar: 0 0.25rem 0.99375rem 0.625rem #00000040;
-  --gradient-session: linear-gradient(89.26deg, #3bdd0d 0.82%, #28923c 100%);
-  --gradient-auth: linear-gradient(139.67deg, #0a1628 0%, #142a66 55%, #3a2fa8 100%);
   --gradient-brand: linear-gradient(96.34deg, #2f4bff 0%, #6a4de8 100%);
   --gradient-brand-hover: linear-gradient(96.34deg, #4660ff 0%, #7d62f2 100%);
   --gradient-brand-active: linear-gradient(96.34deg, #243de0 0%, #583ed2 100%);
   --gradient-sidebar-active: linear-gradient(90.02deg, #334bfc 0.02%, #654ce9 99.98%);
-  --sidebar-bg: linear-gradient(90deg, #09152a 0%, #121e52 100%);
   --radius-panel: 2rem;
   --radius-control: 1rem;
   --radius-squircle: 1rem;
@@ -199,31 +197,6 @@ button {
   line-height: 1;
 }
 
-.session-pill {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.4rem;
-  width: max-content;
-  max-width: 100%;
-  min-width: min(100%, 27.125rem);
-  height: 2.8125rem;
-  margin: 0;
-  padding: 0 1rem;
-  border-radius: 3.1875rem;
-  background: var(--gradient-session);
-  color: #fff;
-  font-size: 1.0625rem;
-  font-weight: 500;
-  line-height: 1;
-  letter-spacing: 0;
-  white-space: nowrap;
-}
-
-.session-pill strong {
-  font-weight: 700;
-}
-
 .text-page-title {
   margin: 0;
   color: #111827;
@@ -274,10 +247,9 @@ button {
   overflow: hidden;
   min-height: 100vh;
   padding: 2.5rem 4.5rem 2.25rem 3rem;
-  background: var(--gradient-auth);
-  border-top-right-radius: var(--radius-panel);
-  border-bottom-right-radius: var(--radius-panel);
-  color: var(--white);
+  background: var(--white);
+  border-inline-end: 1px solid var(--line);
+  color: var(--ink);
 }
 
 .auth-showcase-inner {
@@ -307,8 +279,10 @@ button {
 
 .brand-logo {
   display: block;
-  width: auto;
-  height: 1.25rem;
+  align-self: flex-start;
+  width: 9rem;
+  max-width: 100%;
+  height: auto;
 }
 
 .auth-art {
@@ -530,7 +504,7 @@ button {
 
 .segmented button.is-selected,
 .solid-action {
-  background: #5b4dff;
+  background: var(--gradient-brand);
   color: #fff;
   text-decoration: none;
   display: inline-flex;
@@ -551,7 +525,7 @@ button {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
-  color: #312e81;
+  color: var(--ink-soft);
   font-size: 0.92rem;
 }
 
@@ -790,7 +764,7 @@ button {
 .app-shell {
   display: flex;
   min-height: 100vh;
-  background: var(--page);
+  background: var(--white);
 }
 
 .sidebar {
@@ -804,9 +778,9 @@ button {
   top: 0;
   padding: 1.125rem 0.875rem 1.25rem;
   overflow-y: auto;
-  background: var(--sidebar-bg);
-  box-shadow: var(--shadow-sidebar);
-  color: var(--white);
+  background: var(--white);
+  border-right: 1px solid var(--line);
+  color: var(--ink);
   transition: width 0.22s ease, transform 0.22s ease;
 }
 
@@ -847,11 +821,11 @@ body.nav-open {
   border: 0;
   border-radius: 0.625rem;
   background: transparent;
-  color: var(--white);
+  color: var(--ink);
 }
 
 .sidebar-toggle:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--page);
 }
 
 .sidebar.is-collapsed .brand-mark,
@@ -880,7 +854,7 @@ body.nav-open {
   height: 3rem;
   padding: 0 0.875rem;
   border-radius: 0.875rem;
-  color: var(--white);
+  color: var(--ink);
   font-size: 0.9375rem;
   font-weight: 500;
   line-height: 1;
@@ -888,17 +862,18 @@ body.nav-open {
 }
 
 .nav-link:hover {
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--page);
 }
 
 .nav-link.is-active {
-  background: var(--gradient-sidebar-active);
+  background: var(--selection-bg);
   font-weight: 600;
-  box-shadow: 0 0.5rem 1.125rem rgba(51, 75, 252, 0.28);
+  color: #4039ab;
+  box-shadow: inset 3px 0 #6654e8;
 }
 
 .nav-link.is-active:hover {
-  filter: brightness(1.08);
+  background: #e5e7ff;
 }
 
 .nav-icon {
@@ -908,6 +883,8 @@ body.nav-open {
   height: 1.375rem;
   flex: none;
 }
+
+.nav-icon img { filter: brightness(0); opacity: 0.72; }
 
 .nav-icon img,
 .nav-icon svg {
@@ -926,17 +903,17 @@ body.nav-open {
   height: 3.25rem;
   padding: 0;
   border-radius: 1.125rem;
-  background: var(--icon-idle);
-  box-shadow: var(--shadow-icon);
+  background: transparent;
+  box-shadow: none;
 }
 
 .sidebar.is-collapsed .nav-link:hover {
-  background: var(--icon-idle-hover);
+  background: var(--page);
 }
 
 .sidebar.is-collapsed .nav-link.is-active,
 .sidebar.is-collapsed .nav-link.is-active:hover {
-  background: var(--gradient-sidebar-active);
+  background: var(--selection-bg);
   filter: none;
 }
 
@@ -964,10 +941,10 @@ body.nav-open {
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  min-height: 5.5rem;
-  padding: 0.875rem 1.75rem;
+  min-height: 4rem;
+  padding: 0.75rem 1.75rem;
   background: var(--white);
-  box-shadow: var(--shadow-header);
+  border-bottom: 1px solid var(--line);
 }
 
 .stack {
@@ -1175,7 +1152,7 @@ body.nav-open {
   background: var(--white);
 }
 
-.dashboard-page > .surface-card {
+.dashboard-page > .surface-card:not(.panel-card) {
   padding: 0 0 1.5rem;
   border: 0;
   border-bottom: 1px solid var(--line);
@@ -1462,11 +1439,13 @@ body.nav-open {
   font-size: 0.9375rem;
   font-weight: 600;
   line-height: 1;
-  box-shadow: var(--shadow-raised);
+  border-color: var(--control-line);
 }
 
 .mode-chip.is-selected {
-  border-color: #000;
+  color: var(--link);
+  background: var(--selection-bg);
+  border-color: var(--link);
 }
 
 .mode-chip:disabled {
@@ -1795,12 +1774,14 @@ body.nav-open {
 @media (max-width: 73.75rem) {
   .auth-screen {
     grid-template-columns: 1fr;
-    background: var(--gradient-auth);
+    background: var(--white);
   }
 
   .auth-showcase {
     min-height: auto;
     border-radius: 0;
+    border-inline-end: 0;
+    border-bottom: 1px solid var(--line);
     padding-bottom: 3.5rem;
   }
 
@@ -1943,8 +1924,8 @@ body.nav-open {
   .sidebar .nav-link.is-active,
   .sidebar.is-collapsed .nav-link.is-active,
   .sidebar.is-collapsed .nav-link.is-active:hover {
-    background: var(--gradient-sidebar-active);
-    filter: none;
+    background: var(--selection-bg);
+    box-shadow: inset 3px 0 #6654e8;
   }
 
   .topbar {
@@ -1954,16 +1935,6 @@ body.nav-open {
     gap: 0.75rem;
     min-height: 4.5rem;
     padding: 0.75rem 1rem 0.75rem 4.25rem;
-  }
-
-  .session-pill {
-    flex: 1;
-    min-width: 0;
-    height: auto;
-    min-height: 2.5rem;
-    padding: 0.5rem 0.875rem;
-    font-size: 0.8125rem;
-    white-space: normal;
   }
 
   .app-content {
@@ -2117,9 +2088,6 @@ body.nav-open {
   gap: 1.25rem;
 }
 
-.approvals-card {
-  box-shadow: 0px 3px 15.2px 2px #00000040;
-}
 
 .approvals-card h2 {
   margin: 0 0 0.75rem;
@@ -2180,7 +2148,7 @@ body.nav-open {
   border: 0.5px solid #000000;
   border-radius: 0.45rem;
   background: #fff;
-  box-shadow: 0px 4px 5.5px 0px #000000a6;
+  border-color: var(--control-line);
   color: #101828;
   font-size: 13px;
   font-weight: 500;
@@ -2269,8 +2237,8 @@ body.nav-open {
   height: 2.125rem;
   padding: 0 1rem;
   border-radius: 62.4375rem;
-  background: #f6d56a;
-  color: #c4890d;
+  background: var(--page);
+  color: var(--ink-soft);
   font-size: 13px;
   font-weight: 700;
   line-height: 1;
@@ -2540,3 +2508,101 @@ body.nav-open {
     left: 1.6rem;
   }
 }
+
+.workspace-identity, .dashboard-heading, .queue-heading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
+}
+
+.workspace-identity {
+  flex: 1;
+  min-width: 0;
+  color: var(--ink-soft);
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+
+.workspace-identity strong, .dashboard-heading h1 { color: var(--ink); }
+
+.dashboard-heading, .queue-heading { justify-content: space-between; }
+.dashboard-heading p { margin: 0 0 0.4rem; color: var(--ink-soft); font-size: 0.875rem; }
+.dashboard-heading h1 { margin: 0; font-size: 2rem; line-height: 1.2; }
+.dashboard-page .stat-icon { background: #f2f4f8; color: #51617b; }
+
+
+.pricing-rules-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem 2rem;
+  padding-block: 1.5rem;
+}
+
+.pricing-rules-footer p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.9375rem;
+  line-height: 1.5;
+}
+
+@media (max-width: 40rem) {
+  .pricing-rules-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+/* Shared workspace typography and controls */
+.app-main :is(.text-page-title, .dashboard-heading h1) {
+  color: var(--ink);
+  font-size: clamp(1.625rem, 2.4vw, 2rem);
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.app-main :is(.text-section-title, .text-panel-title, .text-block-title, .approvals-card h2) {
+  color: var(--ink);
+  font-size: 1.0625rem;
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+.app-main :is(.field-input, .rfq-input, .rfq-textarea, .sheet-input, .sheet-select,
+  .rules-grid input, .directory-form input, .quote-fields input, .field select, .data-table select) {
+  border: 1px solid var(--control-line);
+  border-radius: var(--control-radius);
+  background-color: var(--white);
+  color: var(--ink);
+}
+
+.app-main :is(.field-input, .rfq-input).is-invalid { border-color: var(--danger); }
+
+.app-main .field select, .app-main .data-table select {
+  min-height: 2.25rem;
+  padding-inline: 0.5rem;
+}
+
+.app-main :is(.field-label, .rfq-label, .field > span) {
+  color: var(--ink-soft);
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+.app-main :is(.ghost-action, .solid-action, .mode-chip, .segmented button, .queue-action) {
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--control-radius);
+  font-weight: 600;
+}
+
+.app-main :is(input, textarea, select, button, a):focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: 2px;
+}
+
+.app-main .table-wrap { max-width: 100%; overflow-x: auto; }
+.app-main .data-table th { font-size: 0.75rem; letter-spacing: 0.04em; }
+.app-main .form-fields > button[type="submit"] { align-self: flex-start; }

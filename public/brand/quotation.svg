@@ -5,13 +5,13 @@
     <linearGradient id="jacket" x2="1" y2="1"><stop stop-color="#bcacff"/><stop offset="1" stop-color="#8374dd"/></linearGradient>
   </defs>
   <!-- A window and a distant skyline locate the scene. -->
-  <g fill="none" stroke="#abbaff" opacity=".32" stroke-width="1.5">
+  <g fill="none" stroke="#8392bb" opacity=".68" stroke-width="1.5">
     <rect x="79" y="64" width="300" height="142" rx="3"/>
     <path d="M179 64v142m100-142v142M79 158h300"/>
     <path d="M80 194h21v-21h24v12h17v-51h24v72m35 0v-34h27v34m57-1v-22h18v-39h21v41h20v-18h22v39" opacity=".65"/>
   </g>
   <circle cx="240" cy="105" r="15" fill="#c5caff" opacity=".5"/>
-  <ellipse cx="302" cy="363" rx="243" ry="11" fill="#0b1736" opacity=".47"/>
+  <ellipse cx="302" cy="363" rx="243" ry="11" fill="#202a55" opacity=".09"/>
   <!-- Seated analyst, in profile at the laptop. -->
   <g stroke-linecap="round" stroke-linejoin="round">
     <path d="m115 289-12 67m70-65 13 65" stroke="#828ac8" stroke-width="5"/>

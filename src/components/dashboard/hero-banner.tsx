@@ -1,51 +1,24 @@
 import { ButtonLink } from "@/components/ui/button";
+import { canManageUsers, isRole } from "@/lib/auth/roles";
 
-export function HeroBanner({ role, waiting }: { role: string; waiting?: number }) {
-  const manager = role === "Line Manager";
-  const queued = waiting ?? 0;
-
-  if (manager && queued > 0) {
-    return (
-      <section className="hero hero-manager">
-        <div className="hero-copy">
-          <p className="text-hero-kicker">Line Manager workspace</p>
-          <h1 className="text-hero-title">
-            {queued} quotation{queued === 1 ? "" : "s"} waiting for your review
-          </h1>
-          <p className="text-hero-sub">New submissions from your representatives.</p>
-        </div>
-        <ButtonLink href="/approval" variant="white" size="hero">
-          Open Queue
-        </ButtonLink>
-      </section>
-    );
-  }
-
-  if (manager) {
-    return (
-      <section className="hero hero-manager">
-        <div className="hero-copy">
-          <p className="text-hero-kicker">Line Manager workspace</p>
-          <h1 className="text-hero-title">Create your first quotation</h1>
-          <p className="text-hero-sub">Register an RFQ to begin.</p>
-        </div>
-        <ButtonLink href="/rfqs/new" variant="white" size="hero">
-          New RFQ
-        </ButtonLink>
-      </section>
-    );
-  }
+export function HeroBanner({ role, waiting = 0 }: { role: string; waiting?: number }) {
+  const reviewing = role === "Line Manager" && waiting > 0;
 
   return (
-    <section className="hero">
-      <div className="hero-copy">
-        <p className="text-hero-kicker">{role} workspace</p>
-        <h1 className="text-hero-title">Create your quotations</h1>
-        <p className="text-hero-sub">Create your first estimate</p>
+    <header className="dashboard-heading">
+      <div>
+        <p>{role} workspace</p>
+        <h1>Dashboard</h1>
       </div>
-      <ButtonLink href="/rfqs/new" variant="white" size="hero" fill>
-        Create new RFQ Estimate
-      </ButtonLink>
-    </section>
+      <div className="action-row">
+        {isRole(role) && canManageUsers(role) && (
+          <ButtonLink href="/admin/users" variant="outline" size="sm">Manage users</ButtonLink>
+        )}
+        {reviewing && <ButtonLink href="/rfqs/new" variant="outline" size="sm">New RFQ</ButtonLink>}
+        <ButtonLink href={reviewing ? "/approval" : "/rfqs/new"} size="sm">
+          {reviewing ? `Review quotations (${waiting})` : "New RFQ estimate"}
+        </ButtonLink>
+      </div>
+    </header>
   );
 }

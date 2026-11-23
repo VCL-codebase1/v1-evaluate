@@ -97,9 +97,15 @@ export function PricingRulesPanel() {
             </label>
           ))}
         </section>
-        <p className="text-subtitle">Changes never alter approved estimates.</p>
         {error ? <p className="text-error" role="alert">{error}</p> : null}
-        {canEdit ? <button type="submit" className="solid-action" disabled={pending}>{pending ? "Saving…" : "Save rates"}</button> : null}
+        <footer className="pricing-rules-footer">
+          <p>Changes never alter approved estimates.</p>
+          {canEdit && (
+            <button type="submit" className="solid-action" disabled={pending}>
+              {pending ? "Saving…" : "Save rates"}
+            </button>
+          )}
+        </footer>
       </form>
     </div>
   );

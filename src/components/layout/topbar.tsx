@@ -16,24 +16,11 @@ export function Topbar({
   const manager = role === "Line Manager";
   return (
     <header className="topbar">
-      <p className="session-pill">
-        <span>Signed in as</span>
-        <strong>{name || role}</strong>
-        {organizationName ? (
-          <>
-            <span aria-hidden>·</span>
-            <strong>{organizationName}</strong>
-          </>
-        ) : null}
-        <span aria-hidden>·</span>
-        {manager || !estimateId ? null : <strong>{estimateId}</strong>}
-        {manager || !estimateId ? null : (
-          <>
-            <span aria-hidden>·</span>
-            <strong>{version}</strong>
-          </>
-        )}
-      </p>
+      <div className="workspace-identity">
+        <strong>{organizationName || role}</strong>
+        {name && <span>{name}</span>}
+        {!manager && estimateId && <span>{estimateId} · {version}</span>}
+      </div>
       <SignOutButton />
     </header>
   );

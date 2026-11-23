@@ -61,7 +61,7 @@ export function Sidebar({ initialCollapsed = false, initialRole = "" }: { initia
         >
           <MenuIcon width={22} height={22} />
         </button>
-        <Logo mark />
+        <Logo />
       </div>
       <nav aria-label="Workspace">
         <ul className="nav-list">
