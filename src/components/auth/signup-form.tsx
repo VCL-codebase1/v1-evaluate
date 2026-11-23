@@ -56,10 +56,12 @@ export function SignupForm() {
         return;
       }
       if (payload.requiresSignIn) {
+        setPending(false);
         router.push("/login");
         router.refresh();
         return;
       }
+      setPending(false);
       router.push("/dashboard");
       router.refresh();
     } catch {

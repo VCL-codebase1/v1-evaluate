@@ -5,6 +5,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createOrganization, ensureDefaultExchangeRates } from "@/lib/auth/organizations";
 import { createUser } from "@/lib/auth/users";
+import { ensureDb } from "@/lib/db/schema";
 import type { Role } from "@/lib/auth/roles";
 
 export const maxDuration = 60;
@@ -45,6 +46,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Password must be at least 8 characters.", field: "password" }, { status: 400 });
   }
 
+  try {
+    await ensureDb();
+  } catch {
+    return NextResponse.json(
+      { error: "Account creation is temporarily unavailable. Please try again shortly." },
+      { status: 503 },
+    );
+  }
+
   const meta = requestMeta(request);
   const ipCfg = {
     scope: "signup:ip",
@@ -75,12 +85,15 @@ export async function POST(request: Request) {
       );
     }
   } catch (error) {
-    // Throttle checks are best-effort; do not block account creation on storage/network issues.
     log.warn("auth.signup.throttle_check_failed", {
       email,
       ip: meta.ip,
       message: error instanceof Error ? error.message : String(error),
     });
+    return NextResponse.json(
+      { error: "Account creation is temporarily unavailable. Please try again shortly." },
+      { status: 503 },
+    );
   }
 
   let organizationId: string | null = null;
@@ -169,22 +182,38 @@ export async function POST(request: Request) {
       { status: 201 },
     );
   } catch (error) {
-    await Promise.allSettled([registerFailure(ipCfg), registerFailure(emailCfg)]);
+    try {
+      await withTimeout(Promise.allSettled([registerFailure(ipCfg), registerFailure(emailCfg)]), 3000, "Signup failure recording");
+    } catch (recordError) {
+      log.warn("auth.signup.failure_recording_failed", {
+        message: recordError instanceof Error ? recordError.message : String(recordError),
+      });
+    }
 
     // Best-effort cleanup to avoid orphaned tenant/auth records.
     try {
       if (createdSupabaseUser && authUserId) {
         const admin = createSupabaseAdminClient();
-        await admin.auth.admin.deleteUser(authUserId);
+        await withTimeout(admin.auth.admin.deleteUser(authUserId), 5000, "Auth cleanup");
       }
-    } catch {}
+    } catch (cleanupError) {
+      log.warn("auth.signup.auth_cleanup_failed", {
+        authUserId,
+        message: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+      });
+    }
     try {
       if (organizationId) {
         const { sql } = await import("@/lib/db/client");
         // cascade removes org-scoped rows if any were partially created
-        await sql()`delete from organizations where id = ${organizationId}`;
+        await withTimeout(sql()`delete from organizations where id = ${organizationId}`, 5000, "Organization cleanup");
       }
-    } catch {}
+    } catch (cleanupError) {
+      log.warn("auth.signup.organization_cleanup_failed", {
+        organizationId,
+        message: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+      });
+    }
 
     const message = error instanceof Error ? error.message : "Unable to create organization account.";
     log.warn("auth.signup.failed", { email, ip: meta.ip, message });

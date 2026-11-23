@@ -1,4 +1,5 @@
 import { cache } from "react";
+import { connection } from "next/server";
 import type { User } from "@supabase/supabase-js";
 import { getLatestEstimateId } from "@/lib/estimates";
 import {
@@ -93,6 +94,7 @@ async function resolveSession(): Promise<AppSession | null> {
 }
 
 export const getSession = cache(async (): Promise<AppSession | null> => {
+  await connection();
   try {
     return await resolveSession();
   } catch {
