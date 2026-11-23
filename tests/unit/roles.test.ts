@@ -1,0 +1,27 @@
+import { canActOnWorkflowStep, canDecideEstimate, canManageUsers, canSubmitEstimate } from "../../src/lib/auth/roles";
+
+describe("organization roles", () => {
+  it("lets a representative submit and blocks them from deciding", () => {
+    expect(canSubmitEstimate("Representative")).toBe(true);
+    expect(canDecideEstimate("Representative")).toBe(false);
+  });
+
+  it("lets a line manager decide the first review step only", () => {
+    expect(canDecideEstimate("Line Manager")).toBe(true);
+    expect(canActOnWorkflowStep("Line Manager", "created")).toBe(false);
+    expect(canActOnWorkflowStep("Line Manager", "line_manager")).toBe(true);
+    expect(canActOnWorkflowStep("Line Manager", "sales_director")).toBe(false);
+  });
+
+  it("lets a sales director decide only the director step", () => {
+    expect(canActOnWorkflowStep("Sales Director", "sales_director")).toBe(true);
+    expect(canActOnWorkflowStep("Sales Director", "line_manager")).toBe(false);
+    expect(canActOnWorkflowStep("Sales Director", "final")).toBe(false);
+  });
+
+  it("limits user management to organization admins", () => {
+    expect(canManageUsers("Super Admin")).toBe(true);
+    expect(canManageUsers("Admin")).toBe(true);
+    expect(canManageUsers("Sales Director")).toBe(false);
+  });
+});

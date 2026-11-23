@@ -2,36 +2,70 @@ name: CI
 
 on:
   push:
-    branches: ["**"]
   pull_request:
 
 jobs:
-  build:
+  unit:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: v1-evaluate
-    env:
-      # CI needs a database to validate migrations against a real Postgres instance.
-      # Provide DATABASE_URL (and any secrets) via repository/environment secrets.
-      DATABASE_URL: ${{ secrets.DATABASE_URL }}
-      SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
-      JWT_SECRET: ${{ secrets.JWT_SECRET }}
-      NODE_ENV: test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: "npm"
-          cache-dependency-path: v1-evaluate/package-lock.json
-      - name: Install dependencies
-        run: npm ci
-      - name: Lint
-        run: npm run lint
-      - name: Typecheck
-        run: npx tsc --noEmit
-      - name: Migrate (required for schema changes)
-        run: npm run db:migrate
-      - name: Build
-        run: npm run build
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npx tsc --noEmit
+      - run: npm test
+      - name: Dependency audit
+        run: npm audit --audit-level=high
+
+  database:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: v11_estimate
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/v11_estimate
+      SESSION_SECRET: ci-session-secret
+      JWT_SECRET: ci-jwt-secret
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - run: npm run db:migrate
+      - run: npm run build
+
+  browser:
+    runs-on: ubuntu-latest
+    needs: unit
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Start app
+        run: npm run dev -- --hostname 127.0.0.1 --port 3000 &
+      - name: Wait for login page
+        run: npx wait-on http://127.0.0.1:3000/login
+      - run: npx playwright test
+        env:
+          PLAYWRIGHT_BASE_URL: http://127.0.0.1:3000
+      - run: npx cypress run --browser electron
+        env:
+          CYPRESS_BASE_URL: http://127.0.0.1:3000
