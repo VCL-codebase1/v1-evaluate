@@ -1,23 +1,24 @@
 import { NextResponse } from "next/server";
-import { getLatestEstimateId } from "@/lib/estimates";
 import type { SessionUser } from "@/lib/types";
 import { validateLogin } from "@/lib/validators";
 import { log, requestMeta } from "@/lib/observability/logger";
-import { checkThrottles, clearThrottle, registerFailure, throttleSubject } from "@/lib/auth/throttle";
-import { getUserProfileByAuthId, isUserLocked, markLoginSuccess } from "@/lib/auth/users";
-import { getOrganizationById } from "@/lib/auth/organizations";
+import { checkThrottles, completeLogin, registerFailure, throttleSubject } from "@/lib/auth/throttle";
+import { getSessionProfileByAuthId, isUserLocked } from "@/lib/auth/users";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const GENERIC_AUTH_ERROR = "Email or password is incorrect.";
 const LOCKED_ERROR = "This account is temporarily unavailable. Try again later or reset your password.";
 
 function withTimeout<T>(promise: Promise<T>, ms: number, operation: string): Promise<T> {
+  const startedAt = performance.now();
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timeoutId = setTimeout(() => reject(new Error(`${operation} timed out.`)), ms);
   });
   return Promise.race([promise, timeout]).finally(() => {
     if (timeoutId) clearTimeout(timeoutId);
+    const durationMs = Math.round(performance.now() - startedAt);
+    if (durationMs >= 2000) log.warn("auth.login.slow_stage", { operation, durationMs });
   }) as Promise<T>;
 }
 
@@ -78,16 +79,20 @@ export async function POST(request: Request) {
       "Supabase sign-in",
     );
 
+    if (error && error.status !== 400) {
+      throw error;
+    }
+
     if (error || !data.user) {
-      await Promise.allSettled([registerFailure(ipCfg), registerFailure(emailCfg)]);
+      await withTimeout(Promise.all([registerFailure(ipCfg), registerFailure(emailCfg)]), 5000, "Login failure tracking");
       log.warn("auth.login.failed", { email, ip: meta.ip, reason: "supabase_auth" });
       return NextResponse.json({ error: GENERIC_AUTH_ERROR, field: "password" }, { status: 401 });
     }
 
-    const profile = await withTimeout(getUserProfileByAuthId(data.user.id), 10000, "Workspace profile lookup");
+    const profile = await withTimeout(getSessionProfileByAuthId(data.user.id), 10000, "Workspace profile lookup");
     if (!profile) {
-      await supabase.auth.signOut().catch(() => {});
-      await Promise.allSettled([registerFailure(ipCfg), registerFailure(emailCfg)]);
+      await withTimeout(supabase.auth.signOut({ scope: "local" }), 3000, "Local sign-out").catch(() => {});
+      await withTimeout(Promise.all([registerFailure(ipCfg), registerFailure(emailCfg)]), 5000, "Login failure tracking");
       log.warn("auth.login.failed", { email, ip: meta.ip, reason: "no_profile" });
       return NextResponse.json(
         { error: "Your account is not linked to an organization workspace. Contact your administrator.", field: "email" },
@@ -96,38 +101,36 @@ export async function POST(request: Request) {
     }
 
     if (!profile.isActive) {
-      await supabase.auth.signOut().catch(() => {});
-      await Promise.allSettled([registerFailure(ipCfg), registerFailure(emailCfg)]);
+      await withTimeout(supabase.auth.signOut({ scope: "local" }), 3000, "Local sign-out").catch(() => {});
+      await withTimeout(Promise.all([registerFailure(ipCfg), registerFailure(emailCfg)]), 5000, "Login failure tracking");
       log.warn("auth.login.failed", { email, ip: meta.ip, reason: "inactive", userId: profile.id });
       return NextResponse.json({ error: GENERIC_AUTH_ERROR, field: "password" }, { status: 401 });
     }
 
     if (isUserLocked(profile)) {
-      await supabase.auth.signOut().catch(() => {});
+      await withTimeout(supabase.auth.signOut({ scope: "local" }), 3000, "Local sign-out").catch(() => {});
       log.warn("auth.login.failed", { email, ip: meta.ip, reason: "locked", userId: profile.id });
       return NextResponse.json({ error: LOCKED_ERROR, field: "password" }, { status: 403 });
     }
-
-    const [org, estimateId] = await Promise.all([
-      getOrganizationById(profile.organizationId).catch(() => null),
-      getLatestEstimateId(profile.organizationId).then((id) => id ?? "").catch(() => ""),
-    ]);
 
     const session: SessionUser = {
       email: profile.email,
       role: profile.role,
       name: profile.name,
-      estimateId,
+      estimateId: profile.estimateId,
       version: "v1",
       organizationId: profile.organizationId,
-      organizationName: org?.name ?? "Organization",
+      organizationName: profile.organizationName,
     };
 
-    await Promise.allSettled([
-      markLoginSuccess(profile.id),
-      clearThrottle("login:ip", ipSubject),
-      clearThrottle("login:email", emailSubject),
-    ]);
+    try {
+      await withTimeout(completeLogin(profile.id, ipSubject, emailSubject), 5000, "Login bookkeeping");
+    } catch (bookkeepingError) {
+      log.warn("auth.login.bookkeeping_failed", {
+        userId: profile.id,
+        message: bookkeepingError instanceof Error ? bookkeepingError.message : String(bookkeepingError),
+      });
+    }
     log.info("auth.login.success", {
       email: profile.email,
       role: profile.role,
@@ -145,6 +148,10 @@ export async function POST(request: Request) {
         { error: "Sign-in is taking too long. Please try again." },
         { status: 504 },
       );
+    }
+    const status = error && typeof error === "object" && "status" in error ? Number(error.status) : 0;
+    if (status === 429 || status >= 500) {
+      return NextResponse.json({ error: "Sign-in is temporarily unavailable. Please try again shortly." }, { status: 503 });
     }
     return NextResponse.json({ error: "Unable to sign in right now. Please try again." }, { status: 500 });
   }

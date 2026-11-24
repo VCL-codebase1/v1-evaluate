@@ -45,7 +45,11 @@ export async function proxy(request: NextRequest) {
     const url = request.nextUrl.clone();
     url.pathname = "/dashboard";
     url.search = "";
-    return NextResponse.redirect(url);
+    const redirect = NextResponse.redirect(url);
+    auth.response.cookies.getAll().forEach(({ name, value, ...options }) => {
+      redirect.cookies.set(name, value, options);
+    });
+    return redirect;
   }
 
   return response;

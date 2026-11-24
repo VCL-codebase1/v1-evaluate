@@ -28,7 +28,7 @@ export type PublicUser = Pick<
 
 export type SessionProfile = Pick<
   DbUser,
-  "id" | "organizationId" | "authUserId" | "email" | "name" | "role" | "isActive" | "mustChangePassword"
+  "id" | "organizationId" | "authUserId" | "email" | "name" | "role" | "isActive" | "mustChangePassword" | "failedLoginCount" | "lockedUntil"
 > & {
   organizationName: string;
   estimateId: string;
@@ -69,6 +69,8 @@ function mapSessionProfile(row: Record<string, unknown>): SessionProfile {
     role: (isRole(role) ? role : "Representative") as Role,
     isActive: Boolean(row.is_active),
     mustChangePassword: Boolean(row.must_change_password),
+    failedLoginCount: Number(row.failed_login_count ?? 0),
+    lockedUntil: toIso(row.locked_until),
     organizationName: String(row.organization_name ?? "Organization"),
     estimateId: row.estimate_id ? String(row.estimate_id) : "",
   };
@@ -136,7 +138,7 @@ export async function getSessionProfileByAuthId(authUserId: string): Promise<Ses
   await ensureDb();
   const rows = await sql()`
     select
-      u.id, u.organization_id, u.auth_user_id, u.email, u.name, u.role, u.is_active, u.must_change_password,
+      u.id, u.organization_id, u.auth_user_id, u.email, u.name, u.role, u.is_active, u.must_change_password, u.failed_login_count, u.locked_until,
       o.name as organization_name,
       (select e.id from estimates e where e.organization_id = u.organization_id order by e.created_at desc limit 1) as estimate_id
     from users u
@@ -163,7 +165,7 @@ export async function getSessionProfileByAuthId(authUserId: string): Promise<Ses
     `;
     const linked = await sql()`
       select
-        u.id, u.organization_id, u.auth_user_id, u.email, u.name, u.role, u.is_active, u.must_change_password,
+        u.id, u.organization_id, u.auth_user_id, u.email, u.name, u.role, u.is_active, u.must_change_password, u.failed_login_count, u.locked_until,
         o.name as organization_name,
         (select e.id from estimates e where e.organization_id = u.organization_id order by e.created_at desc limit 1) as estimate_id
       from users u

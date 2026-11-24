@@ -44,14 +44,14 @@ export function sessionUserFromProfile(profile: SessionProfile): AppSession {
 
 async function resolveSession(): Promise<AppSession | null> {
   const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data, error } = await supabase.auth.getClaims();
+  const authUserId = !error && typeof data?.claims?.sub === "string" ? data.claims.sub : null;
+  if (!authUserId) return null;
 
-  if (!user) return null;
-
-  let profile = await getSessionProfileByAuthId(user.id);
+  let profile = await getSessionProfileByAuthId(authUserId);
   if (!profile) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return null;
     // Link/create an app profile on first Supabase-authenticated access when possible.
     // For multitenant signups the organization/user profile should already exist;
     // this fallback only applies when org context is explicitly provided in metadata.
@@ -81,6 +81,8 @@ async function resolveSession(): Promise<AppSession | null> {
           role: ensured.role,
           isActive: ensured.isActive,
           mustChangePassword: ensured.mustChangePassword,
+          failedLoginCount: ensured.failedLoginCount,
+          lockedUntil: ensured.lockedUntil,
           organizationName: org?.name ?? "Organization",
           estimateId,
         };

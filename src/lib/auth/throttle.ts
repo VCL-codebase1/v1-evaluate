@@ -95,3 +95,22 @@ export async function clearThrottle(scope: string, subject: string) {
   await ensureDb();
   await sql()`delete from auth_throttle where scope = ${scope} and subject = ${subject}`;
 }
+
+export async function completeLogin(userId: string, ipSubject: string, emailSubject: string) {
+  await ensureDb();
+  await sql()`
+    with updated_user as (
+      update users
+      set failed_login_count = 0, locked_until = null, last_login_at = now(), updated_at = now()
+      where id = ${userId}
+      returning id
+    ), cleared_throttles as (
+      delete from auth_throttle
+      where (scope = 'login:ip' and subject = ${ipSubject})
+         or (scope = 'login:email' and subject = ${emailSubject})
+      returning subject
+    )
+    select (select count(*) from updated_user) as updated_count,
+           (select count(*) from cleared_throttles) as cleared_count
+  `;
+}
