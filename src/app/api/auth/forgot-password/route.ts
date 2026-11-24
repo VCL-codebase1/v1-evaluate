@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { checkThrottle, registerFailure, throttleSubject } from "@/lib/auth/throttle";
+import { checkThrottles, registerFailure, throttleSubject } from "@/lib/auth/throttle";
 import { log, requestMeta } from "@/lib/observability/logger";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -36,8 +36,8 @@ export async function POST(request: Request) {
     blockMs: 30 * 60_000,
   };
 
-  const [ipCheck, emailCheck] = await Promise.all([checkThrottle(ipCfg), checkThrottle(emailCfg)]);
-  if (ipCheck.blocked || emailCheck.blocked) {
+  const blocked = await checkThrottles(ipCfg, emailCfg);
+  if (blocked.blocked) {
     log.warn("auth.password_reset.throttled", { ip: meta.ip });
     return NextResponse.json({ ok: true });
   }

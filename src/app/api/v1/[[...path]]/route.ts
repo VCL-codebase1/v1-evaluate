@@ -16,6 +16,7 @@ import {
   getQuotation,
   importDirectory,
   listAudit,
+  listApprovals,
   listClients,
   listDirectory,
   listEstimates,
@@ -35,10 +36,11 @@ import { signJwt, verifyJwt } from "@/lib/jwt";
 import type { PricingRules, QuotationDraft } from "@/lib/db/commercial";
 import type { ExchangeRateTable, SheetLine } from "@/lib/types";
 import { log, requestMeta } from "@/lib/observability/logger";
-import { checkThrottle, clearThrottle, registerFailure, throttleSubject } from "@/lib/auth/throttle";
+import { checkThrottle, checkThrottles, clearThrottle, registerFailure, throttleSubject } from "@/lib/auth/throttle";
 import { isUserLocked, markLoginFailure, markLoginSuccess } from "@/lib/auth/users";
 import { canManageExchangeRates, canSubmitEstimate, isOrgAdmin } from "@/lib/auth/roles";
 import { getSupabaseAnonKey, getSupabaseUrl } from "@/lib/supabase/env";
+import { supabaseFetch } from "@/lib/supabase/fetch";
 
 type Context = { params: Promise<{ path?: string[] }> };
 
@@ -94,9 +96,8 @@ async function handle(request: Request, context: Context) {
     const ipCfg = { scope: "v1login:ip", subject: ipSubject, windowMs: 15 * 60_000, maxFailures: 20, blockMs: 15 * 60_000 };
     const emailCfg = { scope: "v1login:email", subject: emailSubject, windowMs: 15 * 60_000, maxFailures: 8, blockMs: 15 * 60_000 };
 
-    const [ipCheck, emailCheck] = await Promise.all([checkThrottle(ipCfg), checkThrottle(emailCfg)]);
-    const blocked = ipCheck.blocked ? ipCheck : emailCheck.blocked ? emailCheck : null;
-    if (blocked) {
+    const blocked = await checkThrottles(ipCfg, emailCfg);
+    if (blocked.blocked) {
       log.warn("v1.auth.login.rate_limited", { ip: meta.ip });
       return json({ error: "Too many sign-in attempts. Try again later." }, 429, { "Retry-After": String(blocked.retryAfterSec) });
     }
@@ -109,6 +110,7 @@ async function handle(request: Request, context: Context) {
     }
 
     const supabase = createClient(getSupabaseUrl(), getSupabaseAnonKey(), {
+      global: { fetch: supabaseFetch },
       auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
     });
     const { data: authData, error: authError } = await supabase.auth.signInWithPassword({ email, password });
@@ -167,10 +169,7 @@ async function handle(request: Request, context: Context) {
   if (method === "GET" && key === "auth/me") return json({ user: publicUser(user) });
   if (method === "GET" && key === "estimates") return json({ estimates: await listEstimates(user.organizationId) });
   if (method === "GET" && key === "approvals") {
-    const estimates = await listEstimates(user.organizationId);
-    return json({
-      estimates: estimates.filter((estimate) => estimate.reviewStage === "in_review" || estimate.reviewStage === "approved"),
-    });
+    return json({ estimates: await listApprovals(user.organizationId) });
   }
   if (method === "GET" && key === "audit") {
     const estimateId = new URL(request.url).searchParams.get("estimateId") ?? undefined;

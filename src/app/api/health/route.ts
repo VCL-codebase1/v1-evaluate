@@ -8,7 +8,7 @@ export async function GET() {
 
   if (hasDatabase) {
     try {
-      const migrations = await sql()`select id from schema_migrations where id = '0005_production_data_hardening' limit 1`;
+      const migrations = await sql()`select id from schema_migrations where id = '0009_quote_analysis' limit 1`;
       database = migrations.length > 0 ? "ok" : "error";
     } catch {
       database = "error";

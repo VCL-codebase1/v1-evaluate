@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/api";
 import { getQuotation, saveQuotation, type QuotationDraft } from "@/lib/db/commercial";
+import { getEstimate } from "@/lib/db";
 
 type Context = { params: Promise<{ id: string }> };
 
@@ -8,6 +9,9 @@ export async function GET(_request: Request, context: Context) {
   const auth = await requireSession();
   if (!auth.session) return auth.response;
   const { id } = await context.params;
+  if (!(await getEstimate(id, auth.session.organizationId))) {
+    return NextResponse.json({ error: "Estimate not found." }, { status: 404 });
+  }
   try {
     return NextResponse.json({ quotation: await getQuotation(auth.session.organizationId, id) });
   } catch (error) {
@@ -19,6 +23,9 @@ export async function PUT(request: Request, context: Context) {
   const auth = await requireSession();
   if (!auth.session) return auth.response;
   const { id } = await context.params;
+  if (!(await getEstimate(id, auth.session.organizationId))) {
+    return NextResponse.json({ error: "Estimate not found." }, { status: 404 });
+  }
   const body = (await request.json().catch(() => null)) as Partial<QuotationDraft> | null;
   const current = await getQuotation(auth.session.organizationId, id);
   const next: QuotationDraft = {

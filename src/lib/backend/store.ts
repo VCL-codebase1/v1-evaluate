@@ -3,11 +3,13 @@ import {
   decideSheet,
   getEstimate as getWorkspaceEstimate,
   getExchangeRates,
+  getDashboardSummary,
   sheetResponse,
   listAudit as listWorkspaceAudit,
   listClients as listWorkspaceClients,
   listEstimates as listWorkspaceEstimates,
   listReports as listWorkspaceReports,
+  listReviewEstimates as listWorkspaceReviewEstimates,
   saveExchangeRates,
   saveSheet as saveWorkspaceSheet,
   submitSheet,
@@ -108,6 +110,10 @@ export async function listEstimates(organizationId: string) {
   return (await listWorkspaceEstimates(organizationId)).map((estimate) => toApiEstimate(estimate));
 }
 
+export async function listApprovals(organizationId: string) {
+  return (await listWorkspaceReviewEstimates(organizationId)).map((estimate) => toApiEstimate(estimate));
+}
+
 export async function getEstimate(id: string, organizationId: string) {
   const estimate = await getWorkspaceEstimate(id, organizationId);
   return estimate ? toApiEstimate(estimate) : null;
@@ -178,8 +184,7 @@ export async function decideEstimate(id: string, decision: "approved" | "returne
 }
 
 export async function listAudit(organizationId: string, estimateId?: string) {
-  const events = await listWorkspaceAudit(organizationId);
-  return events.filter((event) => !estimateId || event.estimateId === estimateId);
+  return listWorkspaceAudit(organizationId, estimateId);
 }
 
 export async function getRates(organizationId: string) {
@@ -214,11 +219,12 @@ export {
 } from "@/lib/db/commercial";
 
 export async function dashboard(organizationId: string) {
-  const estimates = await listWorkspaceEstimates(organizationId);
+  const summary = await getDashboardSummary(organizationId);
+  const counts = Object.fromEntries(summary.stats.map((stat) => [stat.key, stat.value]));
   return {
-    total: estimates.length,
-    pending: estimates.filter((estimate) => estimate.status === "pending").length,
-    approved: estimates.filter((estimate) => estimate.status === "approved").length,
-    rejected: estimates.filter((estimate) => estimate.status === "rejected").length,
+    total: counts.total ?? 0,
+    pending: counts.pending ?? 0,
+    approved: counts.approved ?? 0,
+    rejected: counts.rejected ?? 0,
   };
 }

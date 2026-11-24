@@ -31,6 +31,7 @@ export type SessionProfile = Pick<
   "id" | "organizationId" | "authUserId" | "email" | "name" | "role" | "isActive" | "mustChangePassword"
 > & {
   organizationName: string;
+  estimateId: string;
 };
 
 function toIso(value: unknown): string | null {
@@ -69,6 +70,7 @@ function mapSessionProfile(row: Record<string, unknown>): SessionProfile {
     isActive: Boolean(row.is_active),
     mustChangePassword: Boolean(row.must_change_password),
     organizationName: String(row.organization_name ?? "Organization"),
+    estimateId: row.estimate_id ? String(row.estimate_id) : "",
   };
 }
 
@@ -135,7 +137,8 @@ export async function getSessionProfileByAuthId(authUserId: string): Promise<Ses
   const rows = await sql()`
     select
       u.id, u.organization_id, u.auth_user_id, u.email, u.name, u.role, u.is_active, u.must_change_password,
-      o.name as organization_name
+      o.name as organization_name,
+      (select e.id from estimates e where e.organization_id = u.organization_id order by e.created_at desc limit 1) as estimate_id
     from users u
     join organizations o on o.id = u.organization_id
     where u.auth_user_id = ${authUserId}::uuid
@@ -161,7 +164,8 @@ export async function getSessionProfileByAuthId(authUserId: string): Promise<Ses
     const linked = await sql()`
       select
         u.id, u.organization_id, u.auth_user_id, u.email, u.name, u.role, u.is_active, u.must_change_password,
-        o.name as organization_name
+        o.name as organization_name,
+        (select e.id from estimates e where e.organization_id = u.organization_id order by e.created_at desc limit 1) as estimate_id
       from users u
       join organizations o on o.id = u.organization_id
       where u.auth_user_id = ${authUserId}::uuid

@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { getSupabaseAnonKey, getSupabaseUrl } from "@/lib/supabase/env";
+import { supabaseFetch } from "@/lib/supabase/fetch";
 
 export async function createSupabaseServerClient() {
   const cookieStore = await cookies();
@@ -8,6 +9,7 @@ export async function createSupabaseServerClient() {
   const key = getSupabaseAnonKey();
 
   return createServerClient(url, key, {
+    global: { fetch: supabaseFetch },
     cookies: {
       getAll() {
         return cookieStore.getAll();

@@ -122,6 +122,16 @@ export async function listEstimates(organizationId: string) {
   return rows.map((r) => mapEstimate(r as Record<string, unknown>));
 }
 
+export async function listReviewEstimates(organizationId: string) {
+  await ensureDb();
+  const rows = await sql()`
+    select * from estimates
+    where organization_id = ${organizationId} and review_stage in ('in_review', 'approved')
+    order by created_at desc
+  `;
+  return rows.map((row) => mapEstimate(row as Record<string, unknown>));
+}
+
 export async function getLatestEstimateId(organizationId: string) {
   await ensureDb();
   const rows = await sql()`select id from estimates where organization_id = ${organizationId} order by created_at desc limit 1`;
@@ -206,10 +216,16 @@ export async function deleteEstimate(id: string, organizationId: string) {
 
 export async function getSheet(id: string, organizationId: string, version = "v1") {
   await ensureDb();
-  // Ensure estimate belongs to org
-  const est = await getEstimate(id, organizationId);
-  if (!est) return null;
-  return readSheet(sql(), id, version);
+  const rows = await sql()`
+    select to_jsonb(s) as sheet
+    from estimates e
+    left join estimate_sheets s on s.estimate_id = e.id
+    where e.id = ${id} and e.organization_id = ${organizationId}
+    limit 1
+  `;
+  if (!rows[0]) return null;
+  const sheet = rows[0].sheet;
+  return sheet ? mapSheet(sheet as Record<string, unknown>) : emptySheet(id, version);
 }
 
 const EMPTY_FLOATATION: ExchangeFloatation = { USD: 0, EUR: 0, GBP: 0 };
@@ -242,8 +258,10 @@ export async function getExchangeRates(organizationId: string): Promise<Exchange
 export async function sheetResponse(id: string, organizationId: string, version = "v1") {
   const sheet = await getSheet(id, organizationId, version);
   if (!sheet) return null;
-  const rates = sheet.rateSnapshot ?? await getExchangeRates(organizationId);
-  const rules = sheet.pricingSnapshot ?? await getPricingRules(organizationId);
+  const [rates, rules] = await Promise.all([
+    sheet.rateSnapshot ?? getExchangeRates(organizationId),
+    sheet.pricingSnapshot ?? getPricingRules(organizationId),
+  ]);
   return { ...sheet, rates, rules, summary: quoteSummary(sheet.lines, rates, rules) };
 }
 
@@ -552,21 +570,30 @@ export async function saveExchangeRates(
 }
 
 export async function listClients(organizationId: string) {
-  const estimates = await listEstimates(organizationId);
-  const clients = new Map<string, { name: string; estimates: number }>();
-  for (const estimate of estimates) {
-    const name = estimate.clientName.trim();
-    if (!name) continue;
-    const current = clients.get(name) ?? { name, estimates: 0 };
-    current.estimates += 1;
-    clients.set(name, current);
-  }
-  return [...clients.values()];
+  await ensureDb();
+  const rows = await sql()`
+    select btrim(client_name) as name, count(*)::integer as estimates
+    from estimates
+    where organization_id = ${organizationId} and btrim(client_name) <> ''
+    group by btrim(client_name)
+    order by max(created_at) desc
+  `;
+  return rows.map((row) => ({ name: String(row.name), estimates: Number(row.estimates) }));
 }
 
-export async function listAudit(organizationId: string) {
+export async function listAudit(organizationId: string, estimateId?: string) {
   await ensureDb();
-  const rows = await sql()`select event_ref, at, actor, role, action, estimate_id, detail from audit_events where organization_id = ${organizationId} order by at desc limit 500`;
+  const rows = estimateId
+    ? await sql()`
+        select event_ref, at, actor, role, action, estimate_id, detail
+        from audit_events where organization_id = ${organizationId} and estimate_id = ${estimateId}
+        order by at desc limit 500
+      `
+    : await sql()`
+        select event_ref, at, actor, role, action, estimate_id, detail
+        from audit_events where organization_id = ${organizationId}
+        order by at desc limit 500
+      `;
   return rows.map((row) => ({
     id: String(row.event_ref),
     at: toIso(row.at) ?? new Date().toISOString(),
@@ -578,16 +605,20 @@ export async function listAudit(organizationId: string) {
 }
 
 export async function listReports(organizationId: string) {
-  const estimates = await listEstimates(organizationId);
-  return estimates
-    .filter((estimate) => estimate.status === "approved" || estimate.reviewStage === "approved")
-    .map((estimate) => ({
-      id: estimate.id,
-      title: estimate.title,
-      clientName: estimate.clientName,
-      totalNgn: estimate.totalNgn,
-      version: estimate.version,
-    }));
+  await ensureDb();
+  const rows = await sql()`
+    select id, title, client_name, total_ngn, version
+    from estimates
+    where organization_id = ${organizationId} and (status = 'approved' or review_stage = 'approved')
+    order by created_at desc
+  `;
+  return rows.map((row) => ({
+    id: String(row.id),
+    title: String(row.title ?? ""),
+    clientName: String(row.client_name ?? ""),
+    totalNgn: toNum(row.total_ngn),
+    version: String(row.version ?? "v1"),
+  }));
 }
 
 export function computeDashboardSummary(estimates: EstimateRecord[]): DashboardSummary {
@@ -608,6 +639,26 @@ export async function getDashboardSummary(
   organizationId: string,
   prefetched?: EstimateRecord[],
 ): Promise<DashboardSummary> {
-  const estimates = prefetched ?? (await listEstimates(organizationId));
-  return computeDashboardSummary(estimates);
+  if (prefetched) return computeDashboardSummary(prefetched);
+  await ensureDb();
+  const rows = await sql()`
+    select
+      count(*)::integer as total,
+      count(*) filter (where status = 'pending')::integer as pending,
+      count(*) filter (where status = 'approved')::integer as approved,
+      count(*) filter (where status = 'rejected')::integer as rejected
+    from estimates where organization_id = ${organizationId}
+  `;
+  const counts = rows[0];
+  const total = Number(counts?.total ?? 0);
+  return {
+    steps: WORKFLOW_STEPS,
+    progress: total === 0 ? 3 : 28,
+    stats: [
+      { key: "total", label: "Total estimates", value: total, tone: "purple" },
+      { key: "pending", label: "Pending review", value: Number(counts?.pending ?? 0), tone: "orange" },
+      { key: "approved", label: "Approved", value: Number(counts?.approved ?? 0), tone: "green" },
+      { key: "rejected", label: "Returned / Rejected", value: Number(counts?.rejected ?? 0), tone: "red" },
+    ],
+  };
 }

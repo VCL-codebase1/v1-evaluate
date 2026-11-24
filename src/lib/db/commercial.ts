@@ -52,15 +52,30 @@ export async function importDirectory(
   kind: DirectoryKind,
   rows: { name: string; contact: string; email: string }[],
 ) {
-  const saved = [];
-  for (const row of rows) {
-    if (!row.name.trim()) continue;
-    saved.push(await addDirectory(organizationId, kind, {
+  const saved = rows
+    .filter((row) => row.name.trim())
+    .map((row) => ({
+      id: id(),
+      kind,
       name: row.name.trim(),
       contact: row.contact.trim(),
       email: row.email.trim(),
+      status: "Active",
     }));
-  }
+  if (saved.length === 0) return saved;
+
+  await ensureDb();
+  await sql().begin(async (db) => {
+    for (let offset = 0; offset < saved.length; offset += 500) {
+      const batch = saved.slice(offset, offset + 500);
+      await db`
+        insert into directory_records(id, organization_id, kind, name, contact, email)
+        select x.id, ${organizationId}, ${kind}, x.name, x.contact, x.email
+        from jsonb_to_recordset(${db.json(batch)}::jsonb)
+          as x(id text, name text, contact text, email text)
+      `;
+    }
+  });
   return saved;
 }
 
@@ -155,13 +170,13 @@ export async function getQuotation(organizationId: string, estimateId: string): 
 export async function saveQuotation(organizationId: string, draft: QuotationDraft) {
   await ensureDb();
   const issued = JSON.stringify(draft.issued);
-  await sql()`
+  const rows = await sql()`
     insert into quotations(
       estimate_id, organization_id, scope, delivery, payment, validity, exclusions, warranty, terms, recipient, issued
-    ) values (
-      ${draft.estimateId}, ${organizationId}, ${draft.scope}, ${draft.delivery}, ${draft.payment}, ${draft.validity},
-      ${draft.exclusions}, ${draft.warranty}, ${draft.terms}, ${draft.recipient}, ${issued}::jsonb
     )
+    select ${draft.estimateId}, ${organizationId}, ${draft.scope}, ${draft.delivery}, ${draft.payment}, ${draft.validity},
+      ${draft.exclusions}, ${draft.warranty}, ${draft.terms}, ${draft.recipient}, ${issued}::jsonb
+    from estimates where id = ${draft.estimateId} and organization_id = ${organizationId}
     on conflict (estimate_id) do update set
       scope = excluded.scope,
       delivery = excluded.delivery,
@@ -173,6 +188,9 @@ export async function saveQuotation(organizationId: string, draft: QuotationDraf
       recipient = excluded.recipient,
       issued = excluded.issued,
       updated_at = now()
+    where quotations.organization_id = excluded.organization_id
+    returning estimate_id
   `;
+  if (rows.length === 0) throw new Error("Estimate not found.");
   return draft;
 }

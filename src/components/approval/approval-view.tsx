@@ -143,7 +143,7 @@ export function ApprovalPanel() {
     return () => {
       active = false;
     };
-  }, [selectedId, estimates]);
+  }, []);
 
   const selected = estimates?.find((estimate) => estimate.id === selectedId) ?? null;
   const activeSheet = selectedId && sheet?.estimateId === selectedId ? sheet : null;
@@ -190,10 +190,17 @@ export function ApprovalPanel() {
     }
     router.refresh();
     setEstimates(null);
-    const reload = await fetch("/api/estimates");
+    const [reload, auditReload] = await Promise.all([
+      fetch("/api/estimates"),
+      fetch("/api/audit"),
+    ]);
     if (reload.ok) {
       const data = (await reload.json()) as { estimates: EstimateRecord[] };
       setEstimates(data.estimates);
+    }
+    if (auditReload.ok) {
+      const data = (await auditReload.json()) as { events: AuditEvent[] };
+      setEvents(data.events ?? []);
     }
   }
 

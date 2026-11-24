@@ -26,17 +26,14 @@ async function defaultEstimateId(organizationId: string) {
   }
 }
 
-export function sessionUserFromProfile(
-  profile: SessionProfile,
-  estimateId = "",
-): AppSession {
+export function sessionUserFromProfile(profile: SessionProfile): AppSession {
   return {
     userId: profile.id,
     authUserId: profile.authUserId,
     email: profile.email,
     role: profile.role,
     name: profile.name,
-    estimateId,
+    estimateId: profile.estimateId,
     version: "v1",
     organizationId: profile.organizationId,
     organizationName: profile.organizationName,
@@ -71,7 +68,10 @@ async function resolveSession(): Promise<AppSession | null> {
         isActive: true,
       });
       if (ensured) {
-        const org = await getOrganizationById(ensured.organizationId).catch(() => null);
+        const [org, estimateId] = await Promise.all([
+          getOrganizationById(ensured.organizationId).catch(() => null),
+          defaultEstimateId(ensured.organizationId),
+        ]);
         profile = {
           id: ensured.id,
           organizationId: ensured.organizationId,
@@ -82,6 +82,7 @@ async function resolveSession(): Promise<AppSession | null> {
           isActive: ensured.isActive,
           mustChangePassword: ensured.mustChangePassword,
           organizationName: org?.name ?? "Organization",
+          estimateId,
         };
       }
     }
@@ -89,8 +90,7 @@ async function resolveSession(): Promise<AppSession | null> {
 
   if (!profile || !profile.isActive) return null;
 
-  const estimateId = await defaultEstimateId(profile.organizationId);
-  return sessionUserFromProfile(profile, estimateId);
+  return sessionUserFromProfile(profile);
 }
 
 export const getSession = cache(async (): Promise<AppSession | null> => {

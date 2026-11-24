@@ -59,7 +59,7 @@ export async function registerFailure(config: ThrottleConfig) {
   const windowStartCutoff = new Date(now.getTime() - config.windowMs);
   const blockedUntil = new Date(now.getTime() + config.blockMs);
 
-  await sql()`
+  const rows = await sql()`
     insert into auth_throttle(scope, subject, window_started_at, fail_count, blocked_until, updated_at)
     values (${config.scope}, ${config.subject}, ${now.toISOString()}, 1, null, ${now.toISOString()})
     on conflict (scope, subject) do update set
@@ -79,12 +79,7 @@ export async function registerFailure(config: ThrottleConfig) {
         else null
       end,
       updated_at = ${now.toISOString()}
-  `;
-
-  const rows = await sql()`
-    select fail_count, blocked_until from auth_throttle
-    where scope = ${config.scope} and subject = ${config.subject}
-    limit 1
+    returning fail_count, blocked_until
   `;
   const row = rows[0] as { fail_count?: number; blocked_until?: Date | string | null } | undefined;
   const bu = row?.blocked_until ? new Date(row.blocked_until as string) : null;
