@@ -37,7 +37,7 @@ const FIELDS: { key: keyof PricingRules; label: string }[] = [
 
 export function PricingRulesPanel() {
   const [rules, setRules] = useState<PricingRules>(DEFAULT_RULES);
-  const [canEdit, setCanEdit] = useState(false);
+  const [canEdit, setCanEdit] = useState<boolean | null>(null);
   const [editing, setEditing] = useState(false);
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
@@ -56,30 +56,32 @@ export function PricingRulesPanel() {
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
-    if (!canEdit) return;
+    if (!canEdit || !editing || pending) return;
     setPending(true);
     setError("");
-    const response = await fetch("/api/pricing-rules", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ rules }),
-    });
-    const payload = await response.json();
-    setPending(false);
-    if (!response.ok) {
-      setError(payload.error || "Unable to save pricing rules.");
-      return;
+    try {
+      const response = await fetch("/api/pricing-rules", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rules }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Unable to save pricing rules.");
+      setRules(payload.rules);
+      setEditing(false);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to save pricing rules.");
+    } finally {
+      setPending(false);
     }
-    setRules(payload.rules);
-    setEditing(false);
   }
 
   return (
     <div className="page-stack">
       <div className="page-heading">
         <h1 className="text-page-title">Pricing rules</h1>
-        {canEdit ? (
-          <button type="button" className="ghost-action" onClick={() => setEditing((current) => !current)}>Edit</button>
+        {canEdit && !editing ? (
+          <button type="button" className="ghost-action" onClick={() => setEditing(true)}>Edit</button>
         ) : null}
       </div>
       <form onSubmit={onSubmit}>
@@ -91,7 +93,7 @@ export function PricingRulesPanel() {
                 type="number"
                 step="any"
                 value={rules[field.key]}
-                readOnly={!editing}
+                readOnly={!editing || pending}
                 onChange={(event) => setRules((current) => ({ ...current, [field.key]: Number(event.target.value) }))}
               />
             </label>
@@ -99,12 +101,10 @@ export function PricingRulesPanel() {
         </section>
         {error ? <p className="text-error" role="alert">{error}</p> : null}
         <footer className="pricing-rules-footer">
-          <p>Changes never alter approved estimates.</p>
-          {canEdit && (
-            <button type="submit" className="solid-action" disabled={pending}>
-              {pending ? "Saving…" : "Save rates"}
-            </button>
-          )}
+          <button type="submit" className="solid-action" disabled={!canEdit || !editing || pending}>
+            {pending ? "Saving…" : "Save changes"}
+          </button>
+          <p>{canEdit === false ? "View only. An organization admin can update these rules." : "Changes never alter approved estimates."}</p>
         </footer>
       </form>
     </div>

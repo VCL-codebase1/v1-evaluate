@@ -237,7 +237,10 @@ button {
 .auth-screen {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
+  grid-template-columns: minmax(0, 40rem) minmax(0, 32.5rem);
+  justify-content: center;
+  column-gap: 1.5rem;
+  padding-inline: 2rem;
   background: var(--white);
 }
 
@@ -246,9 +249,9 @@ button {
   isolation: isolate;
   overflow: hidden;
   min-height: 100vh;
-  padding: 2.5rem 4.5rem 2.25rem 3rem;
+  padding: 2.5rem 0 2.25rem;
   background: var(--white);
-  border-inline-end: 1px solid var(--line);
+
   color: var(--ink);
 }
 
@@ -451,7 +454,7 @@ button {
   align-items: center;
   justify-content: center;
   min-height: 100vh;
-  padding: 3rem 3.5rem 7.5rem;
+  padding: 3rem 0;
   background: var(--white);
 }
 
@@ -1771,9 +1774,11 @@ body.nav-open {
   font-size: 1.5rem;
 }
 
-@media (max-width: 73.75rem) {
+@media (max-width: 56.25rem) {
   .auth-screen {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 32.5rem);
+    align-content: start;
+    padding-inline: 1.25rem;
     background: var(--white);
   }
 
@@ -1782,7 +1787,7 @@ body.nav-open {
     border-radius: 0;
     border-inline-end: 0;
     border-bottom: 1px solid var(--line);
-    padding-bottom: 3.5rem;
+    padding: 1rem 0 0.5rem;
   }
 
   .auth-panel {
@@ -1792,7 +1797,7 @@ body.nav-open {
     margin-top: 0;
     border-radius: 0;
     background: var(--white);
-    padding-top: 3rem;
+    padding-top: 1.5rem;
   }
 
   .auth-art {
@@ -1808,6 +1813,9 @@ body.nav-open {
     min-height: auto;
   }
 
+}
+
+@media (max-width: 73.75rem) {
   .auth-stats {
     margin-top: 2.25rem;
   }
@@ -1963,13 +1971,13 @@ body.nav-open {
 
 @media (max-width: 47.5rem) {
   .auth-showcase {
-    padding: 1rem 1.25rem;
+    padding: 1rem 0 0.5rem;
     border-radius: 0;
   }
 
   .auth-panel {
     width: 100%;
-    padding: 3rem 1.25rem 2.25rem;
+    padding: 1.25rem 0 2.25rem;
     border-radius: 0;
   }
 
@@ -2535,10 +2543,15 @@ body.nav-open {
 .pricing-rules-footer {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   flex-wrap: wrap;
   gap: 1rem 2rem;
   padding-block: 1.5rem;
+}
+
+.pricing-rules-footer button:disabled {
+  opacity: 0.65;
+  cursor: default;
 }
 
 .pricing-rules-footer p {
