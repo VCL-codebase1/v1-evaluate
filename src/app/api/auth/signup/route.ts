@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { log, requestMeta } from "@/lib/observability/logger";
-import { checkSignupThrottles, registerFailure, throttleSubject } from "@/lib/auth/throttle";
+import { checkThrottles, registerFailure, throttleSubject } from "@/lib/auth/throttle";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createOrganization } from "@/lib/auth/organizations";
@@ -73,7 +73,7 @@ export async function POST(request: Request) {
 
   try {
     const blocked = await withTimeout(
-      checkSignupThrottles(ipCfg, emailCfg),
+      checkThrottles(ipCfg, emailCfg),
       8000,
       "Signup throttle check",
     );

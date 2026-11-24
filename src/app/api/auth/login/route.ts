@@ -3,7 +3,7 @@ import { getLatestEstimateId } from "@/lib/estimates";
 import type { SessionUser } from "@/lib/types";
 import { validateLogin } from "@/lib/validators";
 import { log, requestMeta } from "@/lib/observability/logger";
-import { checkThrottle, clearThrottle, registerFailure, throttleSubject } from "@/lib/auth/throttle";
+import { checkThrottles, clearThrottle, registerFailure, throttleSubject } from "@/lib/auth/throttle";
 import { getUserProfileByAuthId, isUserLocked, markLoginSuccess } from "@/lib/auth/users";
 import { getOrganizationById } from "@/lib/auth/organizations";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -11,10 +11,10 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 const GENERIC_AUTH_ERROR = "Email or password is incorrect.";
 const LOCKED_ERROR = "This account is temporarily unavailable. Try again later or reset your password.";
 
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+function withTimeout<T>(promise: Promise<T>, ms: number, operation: string): Promise<T> {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
-    timeoutId = setTimeout(() => reject(new Error("Operation timed out.")), ms);
+    timeoutId = setTimeout(() => reject(new Error(`${operation} timed out.`)), ms);
   });
   return Promise.race([promise, timeout]).finally(() => {
     if (timeoutId) clearTimeout(timeoutId);
@@ -47,12 +47,8 @@ export async function POST(request: Request) {
   const emailCfg = { scope: "login:email", subject: emailSubject, windowMs: 15 * 60_000, maxFailures: 8, blockMs: 15 * 60_000 };
 
   try {
-    const [ipCheck, emailCheck] = await withTimeout(
-      Promise.all([checkThrottle(ipCfg), checkThrottle(emailCfg)]),
-      8000,
-    );
-    const blocked = ipCheck.blocked ? ipCheck : emailCheck.blocked ? emailCheck : null;
-    if (blocked) {
+    const blocked = await withTimeout(checkThrottles(ipCfg, emailCfg), 5000, "Login throttle check");
+    if (blocked.blocked) {
       log.warn("auth.login.rate_limited", { email, ip: meta.ip });
       return NextResponse.json(
         { error: "Too many sign-in attempts. Try again later." },
@@ -60,12 +56,15 @@ export async function POST(request: Request) {
       );
     }
   } catch (error) {
-    // Throttle checks are best-effort; do not block sign-in on storage/network issues.
     log.warn("auth.login.throttle_check_failed", {
       email,
       ip: meta.ip,
       message: error instanceof Error ? error.message : String(error),
     });
+    return NextResponse.json(
+      { error: "Sign-in is temporarily unavailable. Please try again shortly." },
+      { status: 503 },
+    );
   }
 
   try {
@@ -75,7 +74,8 @@ export async function POST(request: Request) {
         email,
         password: result.password,
       }),
-      15000,
+      10000,
+      "Supabase sign-in",
     );
 
     if (error || !data.user) {
@@ -84,7 +84,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: GENERIC_AUTH_ERROR, field: "password" }, { status: 401 });
     }
 
-    const profile = await withTimeout(getUserProfileByAuthId(data.user.id), 15000);
+    const profile = await withTimeout(getUserProfileByAuthId(data.user.id), 10000, "Workspace profile lookup");
     if (!profile) {
       await supabase.auth.signOut().catch(() => {});
       await Promise.allSettled([registerFailure(ipCfg), registerFailure(emailCfg)]);

@@ -34,7 +34,7 @@ export async function checkThrottle(config: ThrottleConfig) {
   return { blocked: false as const, retryAfterSec: 0 };
 }
 
-export async function checkSignupThrottles(ip: ThrottleConfig, email: ThrottleConfig) {
+export async function checkThrottles(ip: ThrottleConfig, email: ThrottleConfig) {
   await ensureDb();
   const rows = await sql()`
     select scope, subject, blocked_until

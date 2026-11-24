@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { sql } from "@/lib/db/client";
 import { createEstimate, decideSheet, getEstimate, getSheet, saveSheet, submitSheet } from "@/lib/db";
 import { createOrganization } from "@/lib/auth/organizations";
-import { checkSignupThrottles } from "@/lib/auth/throttle";
+import { checkThrottles } from "@/lib/auth/throttle";
 
 const org = randomUUID();
 const owner = randomUUID();
@@ -68,12 +68,12 @@ it("checks signup IP and email throttles in one lookup", async () => {
   const ip = { scope: "signup:ip", subject, windowMs: 60_000, maxFailures: 5, blockMs: 60_000 };
   const email = { ...ip, scope: "signup:email" };
   try {
-    expect(await checkSignupThrottles(ip, email)).toMatchObject({ blocked: false });
+    expect(await checkThrottles(ip, email)).toMatchObject({ blocked: false });
     await sql()`
       insert into auth_throttle(scope, subject, fail_count, window_started_at, blocked_until)
       values (${email.scope}, ${subject}, 5, now(), now() + interval '1 minute')
     `;
-    expect(await checkSignupThrottles(ip, email)).toMatchObject({ blocked: true });
+    expect(await checkThrottles(ip, email)).toMatchObject({ blocked: true });
   } finally {
     await sql()`delete from auth_throttle where subject = ${subject}`;
   }
