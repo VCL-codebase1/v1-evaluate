@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { sql } from "@/lib/db/client";
 import { createEstimate, decideSheet, getEstimate, getSheet, saveSheet, submitSheet } from "@/lib/db";
 import { createOrganization } from "@/lib/auth/organizations";
-import { checkThrottles } from "@/lib/auth/throttle";
+import { checkThrottles, registerFailure } from "@/lib/auth/throttle";
 
 const org = randomUUID();
 const owner = randomUUID();
@@ -74,6 +74,18 @@ it("checks signup IP and email throttles in one lookup", async () => {
       values (${email.scope}, ${subject}, 5, now(), now() + interval '1 minute')
     `;
     expect(await checkThrottles(ip, email)).toMatchObject({ blocked: true });
+  } finally {
+    await sql()`delete from auth_throttle where subject = ${subject}`;
+  }
+});
+
+it("records the first and repeated failed login without a timestamp type error", async () => {
+  const subject = randomUUID();
+  const config = { scope: "login:email", subject, windowMs: 60_000, maxFailures: 2, blockMs: 60_000 };
+  try {
+    expect(await registerFailure(config)).toMatchObject({ failCount: 1, blocked: false });
+    expect(await registerFailure(config)).toMatchObject({ failCount: 2, blocked: true });
+    expect(await checkThrottles(config, { ...config, scope: "login:ip" })).toMatchObject({ blocked: true });
   } finally {
     await sql()`delete from auth_throttle where subject = ${subject}`;
   }

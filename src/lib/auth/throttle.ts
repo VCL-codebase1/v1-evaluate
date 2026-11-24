@@ -56,29 +56,27 @@ export async function checkThrottles(ip: ThrottleConfig, email: ThrottleConfig) 
 export async function registerFailure(config: ThrottleConfig) {
   await ensureDb();
   const now = new Date();
-  const windowStartCutoff = new Date(now.getTime() - config.windowMs);
-  const blockedUntil = new Date(now.getTime() + config.blockMs);
 
   const rows = await sql()`
     insert into auth_throttle(scope, subject, window_started_at, fail_count, blocked_until, updated_at)
-    values (${config.scope}, ${config.subject}, ${now.toISOString()}, 1, null, ${now.toISOString()})
+    values (${config.scope}, ${config.subject}, now(), 1, null, now())
     on conflict (scope, subject) do update set
       window_started_at = case
-        when auth_throttle.window_started_at < ${windowStartCutoff.toISOString()} then ${now.toISOString()}
+        when auth_throttle.window_started_at < now() - (${config.windowMs} * interval '1 millisecond') then now()
         else auth_throttle.window_started_at
       end,
       fail_count = case
-        when auth_throttle.window_started_at < ${windowStartCutoff.toISOString()} then 1
+        when auth_throttle.window_started_at < now() - (${config.windowMs} * interval '1 millisecond') then 1
         else auth_throttle.fail_count + 1
       end,
       blocked_until = case
         when (case
-          when auth_throttle.window_started_at < ${windowStartCutoff.toISOString()} then 1
+          when auth_throttle.window_started_at < now() - (${config.windowMs} * interval '1 millisecond') then 1
           else auth_throttle.fail_count + 1
-        end) >= ${config.maxFailures} then ${blockedUntil.toISOString()}
+        end) >= ${config.maxFailures} then now() + (${config.blockMs} * interval '1 millisecond')
         else null
       end,
-      updated_at = ${now.toISOString()}
+      updated_at = now()
     returning fail_count, blocked_until
   `;
   const row = rows[0] as { fail_count?: number; blocked_until?: Date | string | null } | undefined;

@@ -2,7 +2,6 @@
 
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { TextField } from "@/components/ui/text-field";
@@ -11,7 +10,6 @@ import { validateLogin } from "@/lib/validators";
 type Field = "email" | "password";
 
 export function LoginForm() {
-  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(true);
@@ -41,21 +39,23 @@ export function LoginForm() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: result.email, password: result.password, remember }),
+        signal: AbortSignal.timeout(35_000),
       });
-      const payload = (await response.json()) as { error?: string; field?: Field };
+      const payload = (await response.json().catch(() => null)) as { error?: string; field?: Field } | null;
 
       if (!response.ok) {
-        if (payload.field) setErrors({ [payload.field]: payload.error });
-        else setFormError(payload.error ?? "Unable to sign in.");
+        if (payload?.field) setErrors({ [payload.field]: payload.error });
+        else setFormError(payload?.error ?? "Unable to sign in. Please try again.");
         setPending(false);
         return;
       }
 
       const next = new URLSearchParams(window.location.search).get("next");
-      setPending(false);
-      router.push(next && next.startsWith("/") && !next.startsWith("//") ? next : "/dashboard");
-    } catch {
-      setFormError("Unable to sign in. Check your connection and try again.");
+      window.location.replace(next && next.startsWith("/") && !next.startsWith("//") ? next : "/dashboard");
+    } catch (error) {
+      setFormError(error instanceof Error && error.name === "TimeoutError"
+        ? "Sign-in is taking too long. Please try again."
+        : "Unable to sign in. Check your connection and try again.");
       setPending(false);
     }
   }
