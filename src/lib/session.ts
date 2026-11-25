@@ -95,13 +95,18 @@ async function resolveSession(): Promise<AppSession | null> {
   return sessionUserFromProfile(profile);
 }
 
-export const getSession = cache(async (): Promise<AppSession | null> => {
+export const getPasswordChangeSession = cache(async (): Promise<AppSession | null> => {
   await connection();
   try {
     return await resolveSession();
   } catch {
     return null;
   }
+});
+
+export const getSession = cache(async (): Promise<AppSession | null> => {
+  const session = await getPasswordChangeSession();
+  return session?.mustChangePassword ? null : session;
 });
 
 export async function getSupabaseAuthUser(): Promise<User | null> {

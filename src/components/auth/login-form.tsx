@@ -41,12 +41,17 @@ export function LoginForm() {
         body: JSON.stringify({ email: result.email, password: result.password, remember }),
         signal: AbortSignal.timeout(35_000),
       });
-      const payload = (await response.json().catch(() => null)) as { error?: string; field?: Field } | null;
+      const payload = (await response.json().catch(() => null)) as { error?: string; field?: Field; mustChangePassword?: boolean } | null;
 
       if (!response.ok) {
         if (payload?.field) setErrors({ [payload.field]: payload.error });
         else setFormError(payload?.error ?? "Unable to sign in. Please try again.");
         setPending(false);
+        return;
+      }
+
+      if (payload?.mustChangePassword) {
+        window.location.replace("/change-password");
         return;
       }
 

@@ -22,6 +22,8 @@ export function UserAdminPanel() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [form, setForm] = useState({ email: "", name: "", role: "Representative", password: "" });
+  const [invite, setInvite] = useState(true);
+  const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -48,17 +50,19 @@ export function UserAdminPanel() {
     e.preventDefault();
     setBusy("create");
     setError("");
+    setNotice("");
     try {
       const res = await fetch("/api/admin/users", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, mustChangePassword: true }),
+        body: JSON.stringify({ ...form, invite, mustChangePassword: true }),
       });
-      const data = (await res.json()) as { error?: string; user?: User };
+      const data = (await res.json()) as { error?: string; user?: User; invitationSent?: boolean };
       if (!res.ok) throw new Error(data.error || "Failed to create user");
       setForm({ email: "", name: "", role: "Representative", password: "" });
       const createdUser = data.user;
       if (createdUser) setUsers((current) => [createdUser, ...current]);
+      setNotice(data.invitationSent ? "Invitation sent. The user can set a password from the email link." : "User created. Share the temporary password securely.");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to create user");
     } finally {
@@ -103,6 +107,7 @@ export function UserAdminPanel() {
       </div>
 
       {error ? <p className="form-error">{error}</p> : null}
+      {notice ? <p className="sheet-message" role="status">{notice}</p> : null}
 
       <section className="surface-card panel-card">
         <h2 className="text-section-title">Provision user</h2>
@@ -115,13 +120,20 @@ export function UserAdminPanel() {
               {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
             </select>
           </label>
-          <TextField label="Temporary password (min 8 chars)" name="password" type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required />
+          <label className="field">
+            <span>Account setup</span>
+            <select value={invite ? "invite" : "temporary"} onChange={(e) => setInvite(e.target.value === "invite")}>
+              <option value="invite">Send email invitation</option>
+              <option value="temporary">Set a temporary password</option>
+            </select>
+          </label>
+          {!invite ? <TextField label="Temporary password (min 8 chars)" name="password" type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required /> : null}
           <div>
             <Button type="submit" variant="primary" size="sm" disabled={busy === "create"}>
-              {busy === "create" ? "Creating…" : "Create user"}
+              {busy === "create" ? "Creating…" : invite ? "Send invitation" : "Create user"}
             </Button>
           </div>
-          <p className="text-subtitle">New users can be required to change temporary passwords after first sign-in.</p>
+          <p className="text-subtitle">Invited users set their own password. Temporary passwords must be changed at first sign-in.</p>
         </form>
       </section>
 

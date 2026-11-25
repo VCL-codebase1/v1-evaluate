@@ -42,6 +42,8 @@ Migration `0008_estimate_ownership` stores the creator’s workspace profile ID 
 
 Run `npm run test:db` with `TEST_DATABASE_URL` pointing to a migrated test database to check submission concurrency and approval rollback.
 
+Run `npm run test:e2e` for unsigned browser checks. Set `PLAYWRIGHT_BASE_URL`, `E2E_ADMIN_EMAIL`, and `E2E_ADMIN_PASSWORD` to test a completed admin account against staging, including sign-in and access to user administration. The staging account test is skipped without those credentials. On a machine with Chrome already installed, set `PLAYWRIGHT_CHANNEL=chrome`.
+
 ## Estimation sheet
 
 Representatives use the standard cost sheet. Line managers open **Estimation sheet** and get the BRD columns (manufacturer, model, part number, specification, sourcing, freight method, and the NGN totals). The sheet scrolls sideways; a swipe cue stays up until the table moves. Local items do not receive foreign sourcing charges.
@@ -50,9 +52,9 @@ The quote analysis calculation supports the workbook's two local layouts, courie
 
 ## Authentication & API notes
 
-- Web sign-in (`/login`) authenticates against Supabase Auth, then resolves the active organization-scoped workspace profile. Login throttling and lockout state are stored in Postgres.
+- Web sign-in (`/login`) authenticates against Supabase Auth, then resolves the active organization-scoped workspace profile. Login throttling and lockout state are stored in Postgres. Turning off **Remember me** uses browser-session cookies. Users given a temporary password must set their own password at `/change-password` before they can access workspace pages or APIs.
 - No demo accounts are seeded. Provision the first/admin user with `node scripts/create-admin.mjs --email admin@example.com --name "Admin"` (or use the admin UI at `/admin/users` once an Admin exists).
-- Password reset: `/forgot-password` requests Supabase Auth recovery email and `/reset-password` consumes the provider recovery session. Configure Supabase Auth email templates and SMTP before deployment.
+- Password reset: `/forgot-password` requests Supabase Auth recovery email and `/reset-password` consumes the provider recovery session. Organization admins can invite colleagues by email from `/admin/users`; invited users set a password from the invitation link. Configure Supabase Auth invitation/recovery templates, redirect URLs, and SMTP before using email invitations in production. The temporary-password option remains available when email delivery is not configured.
 - Exchange rates: each organization must set positive NGN-per-USD/EUR/GBP rates in **Exchange rates** before saving estimates that use those currencies. No sample foreign exchange values are supplied to new organizations.
 - Bearer-token API: `/api/v1/*`. Interactive docs: [http://localhost:3000/api/docs](http://localhost:3000/api/docs). OpenAPI 1.1.0: [http://localhost:3000/api/v1/openapi.json](http://localhost:3000/api/v1/openapi.json). v1 auth/refresh tokens are DB-backed with throttling/lockout and role checks for privileged operations.
 - Health check: `GET /api/health` (returns unhealthy unless Postgres and Supabase Auth are configured).

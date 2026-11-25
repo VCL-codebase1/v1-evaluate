@@ -27,6 +27,7 @@ export async function POST(request: Request) {
     name?: string;
     role?: string;
     password?: string;
+    invite?: boolean;
     mustChangePassword?: boolean;
   } | null;
 
@@ -34,7 +35,8 @@ export async function POST(request: Request) {
   const name = typeof body?.name === "string" ? body.name.trim() : "";
   const role = typeof body?.role === "string" ? body.role : "";
   const password = typeof body?.password === "string" ? body.password : "";
-  const mustChangePassword = body?.mustChangePassword ?? true;
+  const invite = body?.invite === true;
+  const mustChangePassword = invite || (body?.mustChangePassword ?? true);
 
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return NextResponse.json({ error: "Enter a valid email.", field: "email" }, { status: 400 });
@@ -47,7 +49,7 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
-  if (password.length < 8) {
+  if (!invite && password.length < 8) {
     return NextResponse.json({ error: "Password must be at least 8 characters.", field: "password" }, { status: 400 });
   }
 
@@ -66,24 +68,39 @@ export async function POST(request: Request) {
     };
     const supaAppMeta = { role, organization_id: session.organizationId };
 
-    const { data: created, error: createError } = await admin.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true,
-      user_metadata: supaUserMeta,
-      app_metadata: supaAppMeta,
-    });
+    const appBaseUrl = process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || new URL(request.url).origin;
+    const { data: created, error: createError } = invite
+      ? await admin.auth.admin.inviteUserByEmail(email, {
+          data: supaUserMeta,
+          redirectTo: `${appBaseUrl.replace(/\/$/, "")}/reset-password?invite=1`,
+        })
+      : await admin.auth.admin.createUser({
+          email,
+          password,
+          email_confirm: true,
+          user_metadata: supaUserMeta,
+          app_metadata: supaAppMeta,
+        });
 
     if (createError) {
       const msg = createError.message || "";
+      const alreadyExists = /already|exists|registered/i.test(msg);
       log.warn("admin.user.supabase_create_failed", { by: session.email, email, message: msg });
       return NextResponse.json(
-        { error: /already|exists|registered/i.test(msg) ? "An account with this email already exists." : msg || "Unable to provision user." },
-        { status: /already|exists|registered/i.test(msg) ? 409 : 502 },
+        { error: alreadyExists
+          ? "An account with this email already exists."
+          : invite
+            ? "Unable to send the invitation. Check email delivery settings or use a temporary password."
+            : msg || "Unable to provision user." },
+        { status: alreadyExists ? 409 : 502 },
       );
     }
     createdAuthUserId = created.user?.id ?? null;
     if (!createdAuthUserId) throw new Error("Supabase did not return a user ID.");
+    if (invite) {
+      const { error: metadataError } = await admin.auth.admin.updateUserById(createdAuthUserId, { app_metadata: supaAppMeta });
+      if (metadataError) throw metadataError;
+    }
     const user = await createUser({
       email,
       name,
@@ -95,7 +112,7 @@ export async function POST(request: Request) {
     });
     createdAuthUserId = null;
     log.info("admin.user.created", { by: session.email, userId: user.id, role: user.role, auth: "supabase", organizationId: session.organizationId });
-    return NextResponse.json({ user }, { status: 201 });
+    return NextResponse.json({ user, invitationSent: invite }, { status: 201 });
   } catch (error) {
     if (createdAuthUserId) {
       try {

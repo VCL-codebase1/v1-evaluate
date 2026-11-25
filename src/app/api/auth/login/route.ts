@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import type { SessionUser } from "@/lib/types";
 import { validateLogin } from "@/lib/validators";
 import { log, requestMeta } from "@/lib/observability/logger";
 import { checkThrottles, completeLogin, registerFailure, throttleSubject } from "@/lib/auth/throttle";
 import { getSessionProfileByAuthId, isUserLocked } from "@/lib/auth/users";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { SESSION_ONLY_COOKIE } from "@/lib/auth/session-cookie";
 
 const GENERIC_AUTH_ERROR = "Email or password is incorrect.";
 const LOCKED_ERROR = "This account is temporarily unavailable. Try again later or reset your password.";
@@ -69,7 +71,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const supabase = await createSupabaseServerClient();
+    const supabase = await createSupabaseServerClient({ sessionOnly: body?.remember === false });
     const { data, error } = await withTimeout(
       supabase.auth.signInWithPassword({
         email,
@@ -138,6 +140,15 @@ export async function POST(request: Request) {
       auth: "supabase",
       organizationId: profile.organizationId,
     });
+
+    const cookieStore = await cookies();
+    if (body?.remember === false) {
+      cookieStore.set(SESSION_ONLY_COOKIE, "1", {
+        path: "/", httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production",
+      });
+    } else {
+      cookieStore.delete(SESSION_ONLY_COOKIE);
+    }
 
     return NextResponse.json({ user: session, mustChangePassword: profile.mustChangePassword });
   } catch (error) {

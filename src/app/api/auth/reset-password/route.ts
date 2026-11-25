@@ -9,9 +9,15 @@ export async function POST(request: Request) {
     token?: string;
     password?: string;
     code?: string;
+    type?: "recovery" | "invite";
+    accessToken?: string;
+    refreshToken?: string;
   } | null;
   const token = typeof body?.token === "string" ? body.token : "";
   const code = typeof body?.code === "string" ? body.code : "";
+  const accessToken = typeof body?.accessToken === "string" ? body.accessToken : "";
+  const refreshToken = typeof body?.refreshToken === "string" ? body.refreshToken : "";
+  const type = body?.type === "invite" ? "invite" : "recovery";
   const password = typeof body?.password === "string" ? body.password : "";
 
   const meta = requestMeta(request);
@@ -48,14 +54,19 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "Reset link is invalid or has expired." }, { status: 400 });
       }
     } else if (token) {
-      const { error } = await supabase.auth.verifyOtp({ token_hash: token, type: "recovery" });
+      const { error } = await supabase.auth.verifyOtp({ token_hash: token, type });
       if (error) {
         await registerFailure(ipCfg);
         log.warn("auth.password_reset.verify_failed", { ip: meta.ip, message: error.message });
         return NextResponse.json({ error: "Reset link is invalid or has expired." }, { status: 400 });
       }
+    } else if (accessToken && refreshToken) {
+      const { error } = await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+      if (error) {
+        await registerFailure(ipCfg);
+        return NextResponse.json({ error: "Reset link is invalid or has expired." }, { status: 400 });
+      }
     } else {
-      // Allow recovery session already established in browser (e.g. hash-based redirect handled client-side).
       const { data } = await supabase.auth.getUser();
       if (!data.user) {
         await registerFailure(ipCfg);

@@ -54,7 +54,7 @@ async function bearer(request: Request) {
   const claims = verifyJwt(token);
   if (!claims || claims.typ !== "access") return null;
   const user = await findUserById(claims.sub);
-  if (!user || !user.isActive || isUserLocked(user)) return null;
+  if (!user || !user.isActive || user.mustChangePassword || isUserLocked(user)) return null;
   return user;
 }
 
@@ -121,6 +121,10 @@ async function handle(request: Request, context: Context) {
       return json({ error: "Email or password is incorrect." }, 401);
     }
 
+    if (user.mustChangePassword) {
+      return json({ error: "Set your own password in the web app before using API access." }, 403);
+    }
+
     await Promise.all([markLoginSuccess(user.id), clearThrottle("v1login:ip", ipSubject), clearThrottle("v1login:email", emailSubject)]);
     log.info("v1.auth.login.success", { userId: user.id, role: user.role });
     return json(await issueTokens(user));
@@ -143,7 +147,7 @@ async function handle(request: Request, context: Context) {
     }
     const stored = await takeRefreshToken(claims.jti);
     const user = stored ? await findUserById(stored.userId) : null;
-    if (!stored || stored.userId !== claims.sub || !user || !user.isActive || isUserLocked(user)) {
+    if (!stored || stored.userId !== claims.sub || !user || !user.isActive || user.mustChangePassword || isUserLocked(user)) {
       await registerFailure(ipCfg);
       return json({ error: "Refresh token is invalid." }, 401);
     }

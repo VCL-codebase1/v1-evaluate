@@ -10,7 +10,8 @@ export function ResetPasswordForm() {
   const params = useSearchParams();
   const code = params.get("code") ?? "";
   const tokenHash = params.get("token_hash") ?? params.get("token") ?? "";
-  const [hasRecoverySession, setHasRecoverySession] = useState(false);
+  const [hashTokens, setHashTokens] = useState<{ accessToken: string; refreshToken: string; invite: boolean } | null>(null);
+  const invite = params.get("invite") === "1" || params.get("type") === "invite" || hashTokens?.invite === true;
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState("");
@@ -18,17 +19,19 @@ export function ResetPasswordForm() {
   const [done, setDone] = useState(false);
 
   useEffect(() => {
-    // Supabase recovery links may place tokens in the URL hash fragment; detect presence for UX.
     if (typeof window === "undefined") return;
-    const hash = window.location.hash || "";
-    if (hash.includes("type=recovery") || hash.includes("access_token=")) {
-      window.setTimeout(() => setHasRecoverySession(true), 0);
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const accessToken = hash.get("access_token");
+    const refreshToken = hash.get("refresh_token");
+    if (accessToken && refreshToken) {
+      window.setTimeout(() => setHashTokens({ accessToken, refreshToken, invite: hash.get("type") === "invite" }), 0);
+      window.history.replaceState(null, "", window.location.pathname + window.location.search);
     }
   }, []);
 
   const canSubmit = useMemo(
-    () => Boolean(code || tokenHash || hasRecoverySession),
-    [code, tokenHash, hasRecoverySession],
+    () => Boolean(code || tokenHash || hashTokens),
+    [code, tokenHash, hashTokens],
   );
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
@@ -52,7 +55,11 @@ export function ResetPasswordForm() {
       const response = await fetch("/api/auth/reset-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: code || undefined, token: tokenHash || undefined, password }),
+        body: JSON.stringify({
+          code: code || undefined, token: tokenHash || undefined, password,
+          type: invite ? "invite" : "recovery",
+          accessToken: hashTokens?.accessToken, refreshToken: hashTokens?.refreshToken,
+        }),
       });
       const payload = (await response.json().catch(() => ({}))) as { error?: string; ok?: boolean };
       if (!response.ok || !payload.ok) {
@@ -84,8 +91,8 @@ export function ResetPasswordForm() {
 
   return (
     <form className="auth-form" onSubmit={onSubmit} noValidate>
-      <h1 className="text-welcome">Set a new password</h1>
-      <p className="text-subtitle">Choose a strong password for your account</p>
+      <h1 className="text-welcome">{invite ? "Accept your invitation" : "Set a new password"}</h1>
+      <p className="text-subtitle">Choose a private password for your account</p>
       <div className="form-fields">
         <TextField
           label="New password"
