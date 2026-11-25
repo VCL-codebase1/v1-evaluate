@@ -15,8 +15,17 @@ const STEPS = [
 
 type ComputedLine = SheetLine & {
   bank: number;
+  bank2?: number;
   duties: number | null;
   agency: number | null;
+  surcharge?: number;
+  insurance?: number;
+  soncap?: number;
+  shipping?: number;
+  warehouseCharge?: number;
+  deliveryCharge?: number;
+  markupAmount?: number;
+  systemCost?: number;
   totalNgn: number;
 };
 
@@ -36,8 +45,7 @@ function statusLabel(stage: ReviewStage) {
 
 function actorLabel(actor: string) {
   if (actor.includes("(")) return actor;
-  if (actor === "Representative") return "Rep 1 (Representative)";
-  return `${actor} (Representative)`;
+  return actor;
 }
 
 function historyAction(event: AuditEvent) {
@@ -250,7 +258,7 @@ export function ApprovalPanel() {
                     <td className="cell-strong">{estimate.id}</td>
                     <td>
                       {estimate.clientName || "—"}
-                      {estimate.clientName ? <span className="queue-by"> · by {estimate.originator || "Rep 1"}</span> : null}
+                      {estimate.clientName ? <span className="queue-by"> · by {estimate.originator || "—"}</span> : null}
                     </td>
                     <td>{estimate.title || "—"}</td>
                     <td>
@@ -311,7 +319,7 @@ export function ApprovalPanel() {
               <table className="data-table breakdown-table">
                 <thead>
                   <tr>
-                    {["#", "Item", "Source", "Currency", "Qty", "Base", "Freight", "Msc", "Bank", "Duties", "Agency"].map(
+                    {["#", "Item", "Source", "Currency", "Qty", "Base", "Other", "Freight", "Bank", "Customs", "Agency", "Delivery", "Markup", "Extended (NGN)"].map(
                       (heading) => (
                         <th key={heading} scope="col">
                           {heading}
@@ -337,7 +345,7 @@ export function ApprovalPanel() {
                           <option>{line.currency}</option>
                         </select>
                       </td>
-                      {(["qty", "base", "freight", "msc"] as const).map((field) => (
+                      {(["qty", "base", "msc"] as const).map((field) => (
                         <td key={field}>
                           <input
                             className="sheet-input sheet-input-num"
@@ -347,9 +355,20 @@ export function ApprovalPanel() {
                           />
                         </td>
                       ))}
+                      <td>
+                        <input
+                          className="sheet-input sheet-input-num"
+                          value={line.source === "Local" ? "—" : fieldValue(line.freight || "0")}
+                          readOnly
+                          aria-label={`Freight ${index + 1}`}
+                        />
+                      </td>
                       <td className="breakdown-calc">{formatAmount(line.bank)}</td>
-                      <td className="breakdown-calc">{formatAmount(line.duties)}</td>
-                      <td className="breakdown-calc">{formatAmount(line.agency)}</td>
+                      <td className="breakdown-calc">{line.source === "Local" ? "—" : formatAmount(line.duties)}</td>
+                      <td className="breakdown-calc">{line.source === "Local" ? "—" : formatAmount(line.agency)}</td>
+                      <td className="breakdown-calc">{formatAmount(line.deliveryCharge ?? 0)}</td>
+                      <td className="breakdown-calc">{formatAmount(line.markupAmount ?? 0)}</td>
+                      <td className="breakdown-calc">{formatGrandTotal(line.totalNgn)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -365,25 +384,16 @@ export function ApprovalPanel() {
             <table className="data-table breakdown-table">
               <thead>
                 <tr>
-                  {["#", "Item", "Source", "Currency", "Qty", "Base", "Freight", "Msc", "Bank", "Duties", "Agency", "Delivery"].map((heading) => (
+                  {["#", "Item", "Source", "Currency", "Qty", "Base", "Other", "Freight", "Bank", "Customs", "Agency", "Delivery", "Markup", "Extended (NGN)"].map((heading) => (
                     <th key={heading} scope="col">{heading}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 <tr>
-                  <td>#</td>
-                  <td><input className="sheet-input sheet-input-item" readOnly aria-label="Item" /></td>
-                  <td><select className="sheet-select" disabled defaultValue="Local" aria-label="Source"><option>Local</option></select></td>
-                  <td><select className="sheet-select" disabled defaultValue="NGN" aria-label="Currency"><option>NGN</option></select></td>
-                  <td><input className="sheet-input sheet-input-num" readOnly aria-label="Qty" /></td>
-                  <td><input className="sheet-input sheet-input-num" readOnly aria-label="Base" /></td>
-                  <td><input className="sheet-input sheet-input-num" readOnly aria-label="Freight" /></td>
-                  <td><input className="sheet-input sheet-input-num" readOnly aria-label="Msc" /></td>
-                  <td className="breakdown-calc">0.0</td>
-                  <td className="breakdown-calc">N/A</td>
-                  <td className="breakdown-calc">N/A</td>
-                  <td className="breakdown-calc">0.0</td>
+                  <td className="table-empty" colSpan={14}>
+                    Open an estimate to see the quote-analysis breakdown.
+                  </td>
                 </tr>
               </tbody>
             </table>

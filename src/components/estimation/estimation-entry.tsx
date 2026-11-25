@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { EstimationSheet } from "@/components/estimation/estimation-sheet";
-import { ManagerEstimationSheet } from "@/components/estimation/manager-estimation-sheet";
 
 export function EstimationEntry() {
   const [role, setRole] = useState<string | null>(null);
@@ -38,6 +37,6 @@ export function EstimationEntry() {
       </div>
     );
   }
-  if (role === "Line Manager") return <ManagerEstimationSheet estimateId={estimateId} />;
-  return <EstimationSheet estimateId={estimateId} version={version} />;
+  const reviewer = role === "Line Manager" || role === "Sales Director" || role === "Admin" || role === "Super Admin";
+  return <EstimationSheet estimateId={estimateId} version={version} mode={reviewer ? "reviewer" : "originator"} />;
 }

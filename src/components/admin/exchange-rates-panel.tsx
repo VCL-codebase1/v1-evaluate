@@ -6,7 +6,7 @@ import { TextField } from "@/components/ui/text-field";
 import { canManageExchangeRates } from "@/lib/auth/roles";
 import type { ExchangeRateTable } from "@/lib/types";
 
-const EMPTY_RATES: ExchangeRateTable = { NGN: 1, USD: 0, EUR: 0, GBP: 0 };
+const EMPTY_RATES: ExchangeRateTable = { NGN: 1, USD: 0, EUR: 0, GBP: 0, JPY: 0, OTHER: 0 };
 
 export function ExchangeRatesPanel() {
   const [rates, setRates] = useState<ExchangeRateTable>(EMPTY_RATES);
@@ -67,7 +67,7 @@ export function ExchangeRatesPanel() {
     <section className="surface-card panel-card">
       <form className="form-fields" onSubmit={onSubmit}>
         <div className="rate-grid">
-          {(["USD", "EUR", "GBP"] as const).map((currency) => (
+          {(["USD", "EUR", "GBP", "JPY"] as const).map((currency) => (
             <TextField
               key={currency}
               label={`${currency} / NGN`}
@@ -77,7 +77,6 @@ export function ExchangeRatesPanel() {
               step="any"
               value={rates[currency] > 0 ? rates[currency] : ""}
               readOnly={!canEdit}
-              required={canEdit}
               onChange={(event) =>
                 setRates((current) => ({ ...current, [currency]: Number(event.target.value) }))
               }

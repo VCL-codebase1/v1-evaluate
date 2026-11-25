@@ -27,6 +27,9 @@ export type PricingRules = {
   courierDelivery: number;
   courierMarkup: number;
   seaCustoms: number;
+  seaBank: number;
+  seaSurcharge: number;
+  seaMarkup: number;
   seaAgency: number;
   seaDelivery: number;
   shipping: number;
@@ -43,36 +46,39 @@ export type PricingRules = {
 };
 
 export const DEFAULT_RULES: PricingRules = {
-  airBank: 0.35,
-  customs: 10.5,
-  agency: 5,
+  airBank: 0,
+  customs: 0,
+  agency: 0,
   delivery: 0,
-  warehouse: 10,
-  markup: 25,
+  warehouse: 0,
+  markup: 0,
   soncap: 0,
-  localBank: 0.35,
+  localBank: 0,
   localDelivery: 0,
-  localMarkup: 25,
+  localMarkup: 0,
   bank1: 0,
-  courierBank: 1,
-  courierCustoms: 8,
-  courierAgency: 10,
-  courierDelivery: 0.5,
-  courierMarkup: 25,
-  seaCustoms: 20,
-  seaAgency: 5,
-  seaDelivery: 1,
-  shipping: 10,
-  surcharge: 1,
-  insurance: 1,
+  courierBank: 0,
+  courierCustoms: 0,
+  courierAgency: 0,
+  courierDelivery: 0,
+  courierMarkup: 0,
+  seaCustoms: 0,
+  seaBank: 0,
+  seaSurcharge: 0,
+  seaMarkup: 0,
+  seaAgency: 0,
+  seaDelivery: 0,
+  shipping: 0,
+  surcharge: 0,
+  insurance: 0,
   installation: 0,
   localInstallation: 0,
-  vat: 7.5,
-  withholding: 5,
-  commission: 1,
-  localPurchaseBank: 1,
-  localPurchaseMarkup: 20,
-  localPurchaseDelivery: 1,
+  vat: 0,
+  withholding: 0,
+  commission: 0,
+  localPurchaseBank: 0,
+  localPurchaseMarkup: 0,
+  localPurchaseDelivery: 0,
 };
 
 export type QuotationDraft = {

@@ -14,7 +14,7 @@ export type ReviewStage = "draft" | "in_review" | "approved" | "returned";
 
 export type SourceMode = "Local" | "Air" | "Sea";
 
-export type SheetCurrency = "NGN" | "USD" | "EUR" | "GBP";
+export type SheetCurrency = "NGN" | "USD" | "EUR" | "GBP" | "JPY" | "OTHER";
 
 export type EstimateRecord = {
   id: string;
@@ -62,6 +62,9 @@ export type SheetLine = {
   supplier?: string;
   sourcing?: SourcingType;
   delivery?: string;
+  deliveryOutside?: string;
+  exchangeRateOverride?: string;
+  otherCurrencyCode?: string;
   warehouse?: string;
   markup?: string;
   freightType?: "Courier" | "Airport";
@@ -89,7 +92,7 @@ export type SheetRecord = {
 
 export type ExchangeRateTable = Record<SheetCurrency, number>;
 
-export type ExchangeFloatation = Record<Exclude<SheetCurrency, "NGN">, number>;
+export type ExchangeFloatation = Record<Exclude<SheetCurrency, "NGN" | "OTHER">, number>;
 
 export type AuditEvent = {
   id: string;

@@ -24,7 +24,7 @@ export async function PUT(request: Request) {
     floatation?: Partial<ExchangeFloatation>;
   } | null;
   if (!body?.rates || typeof body.rates !== "object") {
-    return NextResponse.json({ error: "Enter exchange rates for USD, EUR, and GBP." }, { status: 400 });
+    return NextResponse.json({ error: "Enter the exchange rates you want to update." }, { status: 400 });
   }
   let saved: { rates: ExchangeRateTable; floatation: ExchangeFloatation };
   try {

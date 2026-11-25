@@ -1,14 +1,14 @@
 import type { SheetCurrency } from "@/lib/types";
 
-export type ForeignCurrency = Exclude<SheetCurrency, "NGN">;
+export type ForeignCurrency = Exclude<SheetCurrency, "NGN" | "OTHER">;
 
-const FOREIGN: ForeignCurrency[] = ["USD", "EUR", "GBP"];
+const FOREIGN: ForeignCurrency[] = ["USD", "EUR", "GBP", "JPY"];
 
 export type LiveNgnRates = Record<ForeignCurrency, number | null>;
 
 /** NGN per 1 unit of each foreign currency, from a public mid-market feed. */
 export async function fetchLiveNgnRates(): Promise<LiveNgnRates> {
-  const empty: LiveNgnRates = { USD: null, EUR: null, GBP: null };
+  const empty: LiveNgnRates = { USD: null, EUR: null, GBP: null, JPY: null };
   try {
     const response = await fetch("https://open.er-api.com/v6/latest/NGN", {
       next: { revalidate: 60 * 30 },

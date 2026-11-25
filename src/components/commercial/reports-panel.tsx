@@ -26,7 +26,7 @@ export function ReportsPanel() {
   const [tab, setTab] = useState<Tab>("reports");
   const [estimates, setEstimates] = useState<EstimateRecord[]>([]);
   const [selectedId, setSelectedId] = useState("");
-  const [lines, setLines] = useState<SheetLine[]>([]);
+  const [lines, setLines] = useState<(SheetLine & { unitNgn?: number; extendedNgn?: number })[]>([]);
   const [draft, setDraft] = useState<QuotationDraft | null>(null);
   const [error, setError] = useState("");
 
@@ -50,7 +50,7 @@ export function ReportsPanel() {
       fetch(`/api/quotations/${selectedId}`).then((response) => response.json()),
     ]).then(([sheet, quotation]) => {
       if (!active) return;
-      setLines(sheet.lines ?? []);
+      setLines(sheet.summary?.lines ?? sheet.lines ?? []);
       setDraft(quotation.quotation ?? null);
     }).catch(() => {
       if (active) setError("Unable to load this quotation.");
@@ -64,13 +64,13 @@ export function ReportsPanel() {
   const priced = useMemo(() => {
     return lines.filter((line) => line.item.trim()).map((line) => {
       const qty = Number(line.qty) || 0;
-      const unit = (Number(line.base) || 0);
-      return { item: line.item, qty, unit, total: unit * (qty || 1) };
+      const unit = line.unitNgn ?? (Number(line.base) || 0);
+      const total = line.extendedNgn ?? unit * (qty || 1);
+      return { item: line.item, qty, unit, total };
     });
   }, [lines]);
   const subtotal = priced.reduce((sum, line) => sum + line.total, 0);
-  const tax = Math.round(subtotal * 0.075 * 100) / 100;
-  const total = subtotal + tax;
+  const total = subtotal;
 
   function patch<K extends keyof QuotationDraft>(key: K, value: QuotationDraft[K]) {
     setDraft((current) => (current ? { ...current, [key]: value } : current));
@@ -223,8 +223,7 @@ export function ReportsPanel() {
               </tbody>
             </table>
             <p className="quote-total"><span>Sub total (NGN)</span><strong>{money(subtotal)}</strong></p>
-            <p className="quote-total"><span>Tax (NGN)</span><strong>{money(tax)}</strong></p>
-            <p className="quote-total is-grand"><span>Total incl TAX (NGN)</span><strong>{money(total)}</strong></p>
+            <p className="quote-total is-grand"><span>Grand total (NGN)</span><strong>{money(total)}</strong></p>
             <p className="text-subtitle">Exclusions: {draft.exclusions || "—"} · Warranty: {draft.warranty || "—"}<br />Terms: {draft.terms || "—"}<br />Thank you for the opportunity.</p>
             <button type="button" className="solid-action" onClick={() => void send()}>Send Quotation</button>
           </section>

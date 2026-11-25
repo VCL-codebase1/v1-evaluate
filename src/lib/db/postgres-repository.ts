@@ -21,7 +21,7 @@ import type {
 } from "@/lib/types";
 
 const SOURCES = new Set<SourceMode>(["Local", "Air", "Sea"]);
-const CURRENCIES = new Set<SheetCurrency>(["NGN", "USD", "EUR", "GBP"]);
+const CURRENCIES = new Set<SheetCurrency>(["NGN", "USD", "EUR", "GBP", "JPY", "OTHER"]);
 
 function text(value?: string | null) {
   return (value ?? "").trim();
@@ -228,7 +228,7 @@ export async function getSheet(id: string, organizationId: string, version = "v1
   return sheet ? mapSheet(sheet as Record<string, unknown>) : emptySheet(id, version);
 }
 
-const EMPTY_FLOATATION: ExchangeFloatation = { USD: 0, EUR: 0, GBP: 0 };
+const EMPTY_FLOATATION: ExchangeFloatation = { USD: 0, EUR: 0, GBP: 0, JPY: 0 };
 
 export async function getExchangeRateSettings(organizationId: string, db: ISql = sql()): Promise<{
   rates: ExchangeRateTable;
@@ -241,7 +241,7 @@ export async function getExchangeRateSettings(organizationId: string, db: ISql =
   for (const row of rows) {
     const currency = String(row.currency) as SheetCurrency;
     if (currency in rates) rates[currency] = Number(row.rate);
-    if (currency === "USD" || currency === "EUR" || currency === "GBP") {
+    if (currency === "USD" || currency === "EUR" || currency === "GBP" || currency === "JPY") {
       const difference = Number(row.floatation);
       floatation[currency] = Number.isFinite(difference) ? difference : 0;
     }
@@ -258,20 +258,26 @@ export async function getExchangeRates(organizationId: string): Promise<Exchange
 export async function sheetResponse(id: string, organizationId: string, version = "v1") {
   const sheet = await getSheet(id, organizationId, version);
   if (!sheet) return null;
+  const frozen = sheet.reviewStage === "in_review" || sheet.reviewStage === "approved";
   const [rates, rules] = await Promise.all([
-    sheet.rateSnapshot ?? getExchangeRates(organizationId),
-    sheet.pricingSnapshot ?? getPricingRules(organizationId),
+    frozen && sheet.rateSnapshot ? sheet.rateSnapshot : getExchangeRates(organizationId),
+    frozen && sheet.pricingSnapshot ? sheet.pricingSnapshot : getPricingRules(organizationId),
   ]);
   return { ...sheet, rates, rules, summary: quoteSummary(sheet.lines, rates, rules) };
 }
 
 function quoteSummary(lines: SheetLine[], rates: ExchangeRateTable, rules: PricingRules) {
-  const priced = priceQuoteLines(lines, rates, rules);
+  const priced = priceQuoteLines(lines, rates, rules).map((line) => ({
+    ...line,
+    duties: line.customs,
+    agency: line.agent,
+    totalNgn: line.extendedNgn,
+  }));
   return {
     lines: priced,
     itemCount: priced.filter((line) => line.item.trim()).length,
     grandTotalNgn: Math.round(priced.reduce((sum, line) => sum + line.extendedNgn, 0) * 100) / 100,
-    soncapUsd: priced.reduce((sum, line) => sum + line.soncap, 0),
+    soncapUsd: priced.reduce((sum, line) => sum + line.soncapShipment, 0),
   };
 }
 
@@ -290,7 +296,7 @@ function cleanLine(line: Partial<SheetLine>, index: number): SheetLine | null {
     id: text(line.id) || `line-${index + 1}`,
     item,
     source,
-    currency,
+    currency: source === "Local" ? "NGN" : currency,
     qty,
     base,
     freight,
@@ -302,8 +308,11 @@ function cleanLine(line: Partial<SheetLine>, index: number): SheetLine | null {
     specification: text(line.specification),
     unit: text(line.unit),
     supplier: text(line.supplier),
-    sourcing: line.sourcing === "Foreign" ? "Foreign" : line.sourcing === "Local" ? "Local" : undefined,
+    sourcing: source === "Local" ? "Local" : "Foreign",
     delivery: text(line.delivery),
+    deliveryOutside: text(line.deliveryOutside),
+    exchangeRateOverride: text(line.exchangeRateOverride),
+    otherCurrencyCode: text(line.otherCurrencyCode),
     warehouse: text(line.warehouse),
     markup: text(line.markup),
     freightType: line.freightType === "Courier" ? "Courier" : "Airport",
@@ -314,17 +323,38 @@ function cleanLine(line: Partial<SheetLine>, index: number): SheetLine | null {
     agencyRate: text(line.agencyRate),
     shippingRate: text(line.shippingRate),
     bank1Amount: text(line.bank1Amount),
-    localType: line.localType === "Purchase" ? "Purchase" : "Standard",
+    localType: line.localType === "Standard" ? "Standard" : "Purchase",
     soncapAmount: text(line.soncapAmount),
   };
 }
 
 function requireConfiguredRates(lines: SheetLine[], rates: ExchangeRateTable) {
-  const currencies = [...new Set(lines.map((line) => line.currency))];
-  const missing = currencies.filter((currency) => currency !== "NGN" && (!rates[currency] || rates[currency] <= 0));
+  const missing = [...new Set(lines.filter((line) => line.currency !== "NGN" && !Number(line.exchangeRateOverride) && (!rates[line.currency] || rates[line.currency] <= 0)).map((line) => line.currency))];
   if (missing.length > 0) {
-    throw new Error(`Configure NGN exchange rates for ${missing.join(", ")} before saving this estimate.`);
+    return `Configure NGN exchange rates for ${missing.join(", ")} before saving this estimate.`;
   }
+  return null;
+}
+
+function validateLineAmounts(lines: SheetLine[]) {
+  const fields: (keyof SheetLine)[] = ["qty", "base", "freight", "msc", "bank1Amount", "soncapAmount", "delivery", "deliveryOutside", "warehouse", "markup", "installation", "customsRate", "agencyRate", "shippingRate", "exchangeRateOverride"];
+  for (const [index, line] of lines.entries()) {
+    if (line.item.trim() && !line.qty.trim()) {
+      return `Item ${index + 1}: enter a quantity greater than zero.`;
+    }
+    if (line.currency === "OTHER" && !line.otherCurrencyCode?.trim()) {
+      return `Item ${index + 1}: enter the other currency code.`;
+    }
+    for (const field of fields) {
+      const value = line[field];
+      if (typeof value !== "string" || !value.trim()) continue;
+      const amount = Number(value.replace(/,/g, ""));
+      if (!Number.isFinite(amount) || amount < 0 || (field === "qty" && amount <= 0) || (field === "exchangeRateOverride" && amount <= 0)) {
+        return `Item ${index + 1}: enter a valid positive ${field === "qty" ? "quantity" : field === "exchangeRateOverride" ? "exchange rate" : String(field)}.`;
+      }
+    }
+  }
+  return null;
 }
 
 async function lockEstimate(db: ISql, id: string, organizationId: string) {
@@ -359,8 +389,11 @@ export async function saveSheet(
     const nextLines = lines
       .map((line, index) => cleanLine(line, index))
       .filter((line): line is SheetLine => Boolean(line));
+    const invalid = validateLineAmounts(nextLines);
+    if (invalid) return { error: invalid, validation: true as const };
     const { rates } = await getExchangeRateSettings(organizationId, db);
-    requireConfiguredRates(nextLines, rates);
+    const missingRates = requireConfiguredRates(nextLines, rates);
+    if (missingRates) return { error: missingRates, validation: true as const };
     const previousIds = new Set(current.lines.map((line) => line.id));
     const nextStage: ReviewStage = current.reviewStage === "returned" ? "draft" : current.reviewStage;
     const sheetVersion = current.version || version;
@@ -420,7 +453,7 @@ export async function submitSheet(id: string, organizationId: string, actor: str
   return sql().begin(async (db) => {
     if (!(await lockEstimate(db, id, organizationId))) return { error: "Estimate not found." as const };
     const current = await readSheet(db, id, version);
-    const effectiveRules = current.pricingSnapshot ?? rules;
+    const effectiveRules = rules;
     const named = current.lines.filter((line) => line.item.trim());
     if (named.length === 0) {
       return { error: "Add an item before submitting for review." as const };
@@ -429,19 +462,23 @@ export async function submitSheet(id: string, organizationId: string, actor: str
       return { error: "This estimate has already been submitted." as const };
     }
 
-    const { rates } = await getExchangeRateSettings(organizationId, db);
-    requireConfiguredRates(named, rates);
+    const { rates: organizationRates } = await getExchangeRateSettings(organizationId, db);
+    const rates = organizationRates;
+    const missingRates = requireConfiguredRates(named, rates);
+    if (missingRates) return { error: missingRates, validation: true as const };
 
     const submittedAt = new Date().toISOString();
     const sheetVersion = current.version || version;
     await db`
-      insert into estimate_sheets(estimate_id, version, review_stage, lines, submitted_at, submitted_by, updated_at)
-      values (${id}, ${sheetVersion}, ${"in_review"}, ${db.json(current.lines)}::jsonb, ${submittedAt}, ${actor}, now())
+      insert into estimate_sheets(estimate_id, version, review_stage, lines, submitted_at, submitted_by, pricing_snapshot, rate_snapshot, updated_at)
+      values (${id}, ${sheetVersion}, ${"in_review"}, ${db.json(current.lines)}::jsonb, ${submittedAt}, ${actor}, ${db.json(effectiveRules)}::jsonb, ${db.json(rates)}::jsonb, now())
       on conflict (estimate_id) do update set
         version = excluded.version,
         review_stage = excluded.review_stage,
         submitted_at = excluded.submitted_at,
         submitted_by = excluded.submitted_by,
+        pricing_snapshot = excluded.pricing_snapshot,
+        rate_snapshot = excluded.rate_snapshot,
         updated_at = now()
     `;
     const summary = quoteSummary(current.lines, rates, effectiveRules);
@@ -499,7 +536,8 @@ export async function decideSheet(
     const isFinalApproval = decision === "approved" && workflowStep === "sales_director";
     const nextStage: ReviewStage = decision === "returned" ? "returned" : isFinalApproval ? "approved" : "in_review";
     const nextWorkflowStep = decision === "returned" ? "created" : isFinalApproval ? "final" : "sales_director";
-    const { rates } = await getExchangeRateSettings(organizationId, db);
+    const { rates: organizationRates } = await getExchangeRateSettings(organizationId, db);
+    const rates = current.rateSnapshot ?? organizationRates;
     const summary = quoteSummary(current.lines, rates, effectiveRules);
     await db`
       update estimate_sheets set review_stage = ${nextStage}, updated_at = now() where estimate_id = ${id}
@@ -545,25 +583,22 @@ export async function saveExchangeRates(
   const current = await getExchangeRateSettings(organizationId);
   const rates = current.rates;
   const floatation = current.floatation;
-  (Object.keys(DEFAULT_RATES) as SheetCurrency[]).forEach((currency) => {
+  (["USD", "EUR", "GBP", "JPY"] as const).forEach((currency) => {
     const next = patch[currency];
     if (typeof next === "number" && Number.isFinite(next) && next > 0) rates[currency] = next;
   });
-  (["USD", "EUR", "GBP"] as const).forEach((currency) => {
+  (["USD", "EUR", "GBP", "JPY"] as const).forEach((currency) => {
     const next = floatationPatch?.[currency];
     if (typeof next === "number" && Number.isFinite(next)) floatation[currency] = next;
   });
   rates.NGN = 1;
-  const missing = (["USD", "EUR", "GBP"] as const).filter((currency) => rates[currency] <= 0);
-  if (missing.length > 0) {
-    throw new Error(`Enter a positive NGN exchange rate for ${missing.join(", ")}.`);
-  }
   await sql()`
     insert into exchange_rates(organization_id, currency, rate, floatation) values
       (${organizationId}, 'NGN', ${rates.NGN}, 0),
       (${organizationId}, 'USD', ${rates.USD}, ${floatation.USD}),
       (${organizationId}, 'EUR', ${rates.EUR}, ${floatation.EUR}),
-      (${organizationId}, 'GBP', ${rates.GBP}, ${floatation.GBP})
+      (${organizationId}, 'GBP', ${rates.GBP}, ${floatation.GBP}),
+      (${organizationId}, 'JPY', ${rates.JPY}, ${floatation.JPY})
     on conflict (organization_id, currency) do update set rate = excluded.rate, floatation = excluded.floatation
   `;
   return { rates: { ...rates }, floatation: { ...floatation } };

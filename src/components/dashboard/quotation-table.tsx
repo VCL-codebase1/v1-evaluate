@@ -59,7 +59,7 @@ export function QuotationTable({
                 <td className="cell-strong">{estimate.id}</td>
                 <td>
                   {cell(estimate.clientName)}
-                  {estimate.clientName ? <span> · by {estimate.originator || "Rep 1"}</span> : null}
+                  {estimate.clientName ? <span> · by {estimate.originator || "—"}</span> : null}
                 </td>
                 <td>{cell(estimate.title)}</td>
                 <td>

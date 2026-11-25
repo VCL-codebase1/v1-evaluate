@@ -7,6 +7,8 @@ export const DEFAULT_RATES: ExchangeRateTable = {
   USD: 0,
   EUR: 0,
   GBP: 0,
+  JPY: 0,
+  OTHER: 0,
 };
 
 export function currencyFor(source: SourceMode): SheetCurrency {
@@ -30,7 +32,7 @@ export function summarizeSheet(lines: SheetLine[], rates: ExchangeRateTable = DE
   const computed = priceQuoteLines(lines, rates, rules).map((line) => ({ ...line, duties: line.customs, agency: line.agent, totalNgn: line.extendedNgn }));
   const named = computed.filter((line) => line.item.trim());
   const grandTotalNgn = roundMoney(computed.reduce((sum, line) => sum + line.totalNgn, 0));
-  const soncapUsd = named.reduce((sum, line) => sum + line.soncap, 0);
+  const soncapUsd = named.reduce((sum, line) => sum + line.soncapShipment, 0);
 
   return {
     lines: computed,
