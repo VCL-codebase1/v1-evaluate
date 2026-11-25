@@ -3,36 +3,44 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { DEFAULT_RULES, type PricingRules } from "@/lib/commercial-types";
 
-const FIELDS: { key: keyof PricingRules; label: string }[] = [
-  { key: "airBank", label: "Air/Sea bank charges %" },
-  { key: "customs", label: "Customs duties % of base+freight" },
-  { key: "agency", label: "Agency charges %" },
-  { key: "delivery", label: "Delivery charges %" },
-  { key: "markup", label: "Markup % of base+freight" },
-  { key: "soncap", label: "SONCAP USD per RFQ" },
-  { key: "localBank", label: "Local bank charges %" },
-  { key: "localDelivery", label: "Local delivery charges %" },
-  { key: "localMarkup", label: "Local markup %" },
-  { key: "bank1", label: "Bank 1 %" },
-  { key: "courierBank", label: "Courier bank 2 %" },
-  { key: "courierCustoms", label: "Courier customs %" },
-  { key: "courierAgency", label: "Courier agency %" },
-  { key: "courierDelivery", label: "Courier delivery %" },
-  { key: "courierMarkup", label: "Courier markup %" },
-  { key: "seaCustoms", label: "Sea customs %" },
-  { key: "seaAgency", label: "Sea agency %" },
-  { key: "seaDelivery", label: "Sea delivery %" },
-  { key: "shipping", label: "Sea shipping line %" },
-  { key: "surcharge", label: "Energy surcharge %" },
-  { key: "insurance", label: "Sea insurance %" },
-  { key: "installation", label: "Foreign installation %" },
-  { key: "localInstallation", label: "Local installation %" },
-  { key: "vat", label: "Local VAT %" },
-  { key: "withholding", label: "Local withholding %" },
-  { key: "commission", label: "Sales commission %" },
-  { key: "localPurchaseBank", label: "Local purchase bank %" },
-  { key: "localPurchaseMarkup", label: "Local purchase markup %" },
-  { key: "localPurchaseDelivery", label: "Local purchase delivery %" },
+const GROUPS: { title: string; fields: { key: keyof PricingRules; label: string }[] }[] = [
+  {
+    title: "Local purchase",
+    fields: [
+      { key: "localBank", label: "Bank 1 % of base" },
+      { key: "localDelivery", label: "Delivery within city % of base" },
+      { key: "localMarkup", label: "Markup % of base" },
+    ],
+  },
+  {
+    title: "Air freight (courier / airport)",
+    fields: [
+      { key: "surcharge", label: "Energy surcharge % of base" },
+      { key: "airBank", label: "Bank 2 % of base" },
+      { key: "customs", label: "Customs % of base + freight" },
+      { key: "agency", label: "Handling / agency % of base" },
+      { key: "delivery", label: "Delivery within Lagos % of base" },
+      { key: "markup", label: "Markup % of base + freight" },
+      { key: "soncap", label: "SONCAP amount per shipment (FX)" },
+    ],
+  },
+  {
+    title: "Sea freight",
+    fields: [
+      { key: "insurance", label: "Insurance % of base" },
+      { key: "seaCustoms", label: "Customs % of base + freight + insurance" },
+      { key: "seaAgency", label: "Agency % of base" },
+      { key: "shipping", label: "Shipping line % of base" },
+      { key: "warehouse", label: "Terminal + warehousing % of shipping line" },
+      { key: "seaDelivery", label: "Delivery % of base" },
+    ],
+  },
+  {
+    title: "Not included in line cost",
+    fields: [
+      { key: "commission", label: "Sales-rep commission % of grand total" },
+    ],
+  },
 ];
 
 export function PricingRulesPanel() {
@@ -85,26 +93,29 @@ export function PricingRulesPanel() {
         ) : null}
       </div>
       <form onSubmit={onSubmit}>
-        <section className="surface-card panel-card rules-grid">
-          {FIELDS.map((field) => (
-            <label key={field.key}>
-              {field.label}
-              <input
-                type="number"
-                step="any"
-                value={rules[field.key]}
-                readOnly={!editing || pending}
-                onChange={(event) => setRules((current) => ({ ...current, [field.key]: Number(event.target.value) }))}
-              />
-            </label>
-          ))}
-        </section>
+        {GROUPS.map((group) => (
+          <section key={group.title} className="surface-card panel-card rules-grid">
+            <h2 className="text-block-title">{group.title}</h2>
+            {group.fields.map((field) => (
+              <label key={field.key}>
+                {field.label}
+                <input
+                  type="number"
+                  step="any"
+                  value={rules[field.key]}
+                  readOnly={!editing || pending}
+                  onChange={(event) => setRules((current) => ({ ...current, [field.key]: Number(event.target.value) }))}
+                />
+              </label>
+            ))}
+          </section>
+        ))}
         {error ? <p className="text-error" role="alert">{error}</p> : null}
         <footer className="pricing-rules-footer">
           <button type="submit" className="solid-action" disabled={!canEdit || !editing || pending}>
             {pending ? "Saving…" : "Save changes"}
           </button>
-          <p>{canEdit === false ? "View only. An organization admin can update these rules." : "Changes never alter approved estimates."}</p>
+          <p>{canEdit === false ? "View only. An organization admin can update these rules." : "Changes never alter approved estimates. Bank 1 on foreign lines is entered per item."}</p>
         </footer>
       </form>
     </div>

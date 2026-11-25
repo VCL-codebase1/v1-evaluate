@@ -522,6 +522,17 @@ button {
   gap: 1rem 1.25rem;
 }
 
+.rules-grid > .text-block-title {
+  grid-column: 1 / -1;
+  margin-bottom: 0;
+}
+
+.sheet-inline-fields {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
 .directory-form label,
 .quote-fields label,
 .rules-grid label {

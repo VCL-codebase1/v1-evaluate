@@ -4,78 +4,48 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
-  currencyFor,
   DEFAULT_RATES,
   formatAmount,
   formatGrandTotal,
-  formatSoncap,
   summarizeSheet,
 } from "@/lib/estimation";
+import { applySource, blankSheetLine, isLocalSource } from "@/lib/sheet-line";
 import type { ExchangeRateTable, ReviewStage, SheetCurrency, SheetLine, SourceMode } from "@/lib/types";
 import { DEFAULT_RULES, type PricingRules } from "@/lib/commercial-types";
 
-type SetAll = "Local" | "Air" | "Freight";
-
-const SET_ALL: SetAll[] = ["Local", "Air", "Freight"];
 const SOURCES: SourceMode[] = ["Local", "Air", "Sea"];
 const CURRENCIES: SheetCurrency[] = ["NGN", "USD", "EUR", "GBP"];
 
-function sourceFromSet(value: SetAll): SourceMode {
-  return value === "Freight" ? "Sea" : value;
-}
-
-function blankLine(source: SourceMode, id = "draft"): SheetLine {
-  return {
-    id,
-    item: "",
-    source,
-    currency: currencyFor(source),
-    qty: "",
-    base: "",
-    freight: "",
-    msc: "",
-    itemNumber: "",
-    manufacturer: "",
-    model: "",
-    partNumber: "",
-    specification: "",
-    unit: "",
-    supplier: "",
-    delivery: "",
-    warehouse: "",
-    markup: "",
-  };
+function Dash() {
+  return <span className="manager-na">—</span>;
 }
 
 export function EstimationSheet({
   estimateId,
-  version,
+  version = "v1",
+  mode = "originator",
 }: {
   estimateId: string;
-  version: string;
+  version?: string;
+  mode?: "originator" | "reviewer";
 }) {
   const router = useRouter();
   const estimateIdRef = useRef(estimateId);
-  const [lines, setLines] = useState<SheetLine[]>([]);
-  const [draft, setDraft] = useState<SheetLine>(() => blankLine("Local"));
-  const [setAll, setSetAll] = useState<SetAll>("Local");
+  const scroller = useRef<HTMLDivElement>(null);
+  const [lines, setLines] = useState<SheetLine[]>(() => [blankSheetLine("line-1")]);
+  const [setAll, setSetAll] = useState<SourceMode>("Local");
   const [rates, setRates] = useState<ExchangeRateTable>(DEFAULT_RATES);
   const [rules, setRules] = useState<PricingRules>(DEFAULT_RULES);
   const [reviewStage, setReviewStage] = useState<ReviewStage>("draft");
   const [loading, setLoading] = useState(true);
+  const [hint, setHint] = useState(true);
   const [pending, setPending] = useState<"save" | "submit" | null>(null);
   const [message, setMessage] = useState("");
 
-  const locked = reviewStage === "in_review" || reviewStage === "approved";
-  const visible = lines.length > 0 ? lines : [draft];
-  const summary = useMemo(
-    () => summarizeSheet(lines.length > 0 ? lines : [draft], rates, rules),
-    [lines, draft, rates, rules],
-  );
+  const locked = mode === "originator" && (reviewStage === "in_review" || reviewStage === "approved");
+  const summary = useMemo(() => summarizeSheet(lines, rates, rules), [lines, rates, rules]);
   const missingRates = [...new Set(
-    (lines.length > 0 ? lines : [draft])
-      .filter((line) => line.currency !== "NGN" && rates[line.currency] <= 0)
-      .map((line) => line.currency),
+    lines.filter((line) => !isLocalSource(line) && line.currency !== "NGN" && rates[line.currency] <= 0).map((line) => line.currency),
   )];
 
   useEffect(() => {
@@ -99,7 +69,9 @@ export function EstimationSheet({
         reviewStage: ReviewStage;
       };
       if (!active) return;
-      setLines(payload.lines ?? []);
+      if (payload.lines?.length) {
+        setLines(payload.lines.map((line) => ({ ...blankSheetLine(line.id, line.source), ...line })));
+      }
       setRates(payload.rates ?? DEFAULT_RATES);
       setRules(payload.rules ?? DEFAULT_RULES);
       setReviewStage(payload.reviewStage ?? "draft");
@@ -111,37 +83,30 @@ export function EstimationSheet({
     };
   }, [estimateId]);
 
-  function applySetAll(next: SetAll) {
-    const source = sourceFromSet(next);
-    const currency = currencyFor(source);
+  function applySetAll(next: SourceMode) {
     setSetAll(next);
-    setLines((current) => current.map((line) => ({ ...line, source, currency })));
-    setDraft((current) => ({ ...current, source, currency }));
+    setLines((current) => current.map((line) => applySource(line, next)));
   }
 
   function updateLine(id: string, patch: Partial<SheetLine>) {
-    const write = (line: SheetLine) => {
-      if (line.id !== id) return line;
-      const next = { ...line, ...patch };
-      if (patch.source) next.currency = currencyFor(patch.source);
-      return next;
-    };
-    if (lines.length === 0) setDraft(write);
-    else setLines((current) => current.map(write));
-  }
-
-  function addItem() {
-    const source = sourceFromSet(setAll);
-    if (lines.length === 0) {
-      setLines([{ ...draft, id: crypto.randomUUID() }]);
-      setDraft(blankLine(source, crypto.randomUUID()));
-      return;
-    }
-    setLines((current) => [...current, blankLine(source, crypto.randomUUID())]);
+    setLines((current) =>
+      current.map((line) => {
+        if (line.id !== id) return line;
+        const next = { ...line, ...patch };
+        if (patch.source) return applySource(next, patch.source);
+        if (patch.sourcing === "Local") return applySource(next, "Local");
+        if (patch.sourcing === "Foreign" && next.source === "Local") return applySource(next, "Air");
+        return next;
+      }),
+    );
   }
 
   async function saveDraft() {
     setMessage("");
+    if (missingRates.length > 0) {
+      setMessage(`Set an NGN exchange rate for ${missingRates.join(", ")} before saving.`);
+      return;
+    }
     setPending("save");
     const response = await fetch(`/api/estimates/${estimateIdRef.current}/sheet`, {
       method: "PUT",
@@ -160,17 +125,16 @@ export function EstimationSheet({
 
   async function submit() {
     setMessage("");
-    const named = (lines.length > 0 ? lines : [draft]).filter((line) => line.item.trim());
+    const named = lines.filter((line) => line.item.trim());
     if (named.length === 0) {
       setMessage("Add an item before submitting for review.");
       return;
     }
-    const payloadLines = lines.length > 0 ? lines : [{ ...draft }];
     setPending("submit");
     const saved = await fetch(`/api/estimates/${estimateIdRef.current}/sheet`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ lines: payloadLines }),
+      body: JSON.stringify({ lines }),
     });
     if (!saved.ok) {
       const payload = (await saved.json()) as { error?: string };
@@ -193,15 +157,21 @@ export function EstimationSheet({
     <div className="page-stack">
       <div className="page-heading">
         <h1 className="text-page-title">Estimation sheet</h1>
-        <Button type="button" variant="primary" size="sm" onClick={submit} disabled={locked || pending !== null || missingRates.length > 0}>
-          {locked ? "Submitted for review" : pending === "submit" ? "Submitting…" : "Submit for review"}
-        </Button>
+        {mode === "originator" ? (
+          <Button type="button" variant="primary" size="sm" onClick={submit} disabled={locked || pending !== null || missingRates.length > 0}>
+            {locked ? "Submitted for review" : pending === "submit" ? "Submitting…" : "Submit for review"}
+          </Button>
+        ) : (
+          <button type="button" className="add-item-btn" onClick={() => void saveDraft()} disabled={pending !== null || missingRates.length > 0}>
+            {pending === "save" ? "Saving…" : "Save sheet"}
+          </button>
+        )}
       </div>
 
       <div className="sheet-toolbar">
         <div className="set-all">
           <span>Set all:</span>
-          {SET_ALL.map((option) => (
+          {SOURCES.map((option) => (
             <button
               key={option}
               type="button"
@@ -209,15 +179,21 @@ export function EstimationSheet({
               onClick={() => applySetAll(option)}
               disabled={locked}
             >
-              {option}
+              {option === "Air" ? "Air freight" : option === "Sea" ? "Sea freight" : "Local"}
             </button>
           ))}
         </div>
         <div className="sheet-actions">
-          <Button type="button" variant="primary" size="sm" onClick={addItem} disabled={locked}>
+          <Button
+            type="button"
+            variant="primary"
+            size="sm"
+            onClick={() => setLines((current) => [...current, blankSheetLine(crypto.randomUUID(), setAll)])}
+            disabled={locked}
+          >
             + Add item
           </Button>
-          {lines.length > 0 ? (
+          {mode === "originator" ? (
             <Button type="button" variant="quiet" size="sm" onClick={saveDraft} disabled={locked || pending !== null || missingRates.length > 0}>
               {pending === "save" ? "Saving…" : "Save draft"}
             </Button>
@@ -225,6 +201,9 @@ export function EstimationSheet({
         </div>
       </div>
 
+      <p className="manager-note">
+        Local purchase has no freight. Air (courier/airport) and sea freight use the quote-analysis columns from the evaluation template. Commission and installation are shown for bonus only and are not in the line cost.
+      </p>
       {message ? <p className="sheet-message">{message}</p> : null}
       {missingRates.length > 0 ? (
         <p className="text-error" role="alert">
@@ -232,155 +211,168 @@ export function EstimationSheet({
         </p>
       ) : null}
 
-      <section className="surface-card panel-card sheet-card" aria-busy={loading}>
-        <div className="table-scroll">
-          <table className="data-table sheet-table">
-            <thead>
-              <tr>
-                {["#", "Item no.", "Item", "Manufacturer", "Model", "Part no.", "Specification", "Unit", "Supplier", "Source", "Currency", "Qty", "Base", "Freight", "Msc", "Delivery", "Warehouse", "Markup", "Bank", "Duties", "Agency", "Delivered"].map(
-                  (heading) => (
+      <section className="surface-card panel-card manager-sheet" aria-busy={loading}>
+        <div className="manager-scroll-wrap">
+          {hint ? (
+            <div className="swipe-hint" aria-hidden>
+              <span className="swipe-hint-hand">←</span>
+              Swipe left
+            </div>
+          ) : null}
+          <div
+            className="manager-scroll"
+            ref={scroller}
+            onScroll={(event) => {
+              if (event.currentTarget.scrollLeft > 12) setHint(false);
+            }}
+          >
+            <table className="data-table manager-table sheet-table">
+              <thead>
+                <tr>
+                  {[
+                    "#",
+                    "Item description",
+                    "Manufacturer",
+                    "Model",
+                    "Part number",
+                    "Specification",
+                    "Qty",
+                    "UOM",
+                    "Supplier",
+                    "Source",
+                    "Currency",
+                    "Base price",
+                    "Other charges",
+                    "Energy surcharge",
+                    "Insurance",
+                    "Bank 1",
+                    "Bank 2",
+                    "Freight",
+                    "Customs",
+                    "SONCAP",
+                    "Shipping line",
+                    "Terminal + warehouse",
+                    "Agency",
+                    "Delivery (city / Lagos)",
+                    "Delivery outside Lagos",
+                    "Markup",
+                    "Subtotal (FX)",
+                    "Ex-rate",
+                    "Unit (NGN)",
+                    "Grand total (NGN)",
+                    "Installation % (not in cost)",
+                    "Sales commission (not in cost)",
+                    "SONCAP applies",
+                  ].map((heading) => (
                     <th key={heading} scope="col">
                       {heading}
                     </th>
-                  ),
-                )}
-              </tr>
-            </thead>
-            <tbody>
-              {visible.map((line, index) => {
-                const computed = summarizeSheet([line], rates, rules).lines[0];
-                return (
-                  <tr key={line.id}>
-                    <td className="sheet-index">{lines.length === 0 ? "#" : index + 1}</td>
-                    {(
-                      [
-                        ["itemNumber", "Item number"],
-                      ] as const
-                    ).map(([field, label]) => (
-                      <td key={field}>
-                        <input
-                          className="sheet-input"
-                          aria-label={`${label} ${index + 1}`}
-                          value={line[field] ?? ""}
-                          disabled={locked}
-                          onChange={(event) => updateLine(line.id, { [field]: event.target.value })}
-                        />
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {summary.lines.map((line, index) => {
+                  const local = isLocalSource(line);
+                  const sea = !local && line.source === "Sea";
+                  return (
+                    <tr key={line.id}>
+                      <td className="sticky-col sheet-index">{index + 1}</td>
+                      <td className="sticky-col sticky-second">
+                        <input className="sheet-input sheet-input-item" value={line.item} disabled={locked} aria-label={`Item ${index + 1}`} onChange={(event) => updateLine(line.id, { item: event.target.value })} />
                       </td>
-                    ))}
-                    <td>
-                      <input
-                        className="sheet-input sheet-input-item"
-                        aria-label={`Item ${index + 1}`}
-                        value={line.item}
-                        disabled={locked}
-                        onChange={(event) => updateLine(line.id, { item: event.target.value })}
-                      />
-                    </td>
-                    {(
-                      [
-                        ["manufacturer", "Manufacturer"],
-                        ["model", "Model"],
-                        ["partNumber", "Part number"],
-                        ["specification", "Specification"],
-                        ["unit", "Unit"],
-                        ["supplier", "Supplier"],
-                      ] as const
-                    ).map(([field, label]) => (
-                      <td key={field}>
-                        <input
-                          className="sheet-input"
-                          aria-label={`${label} ${index + 1}`}
-                          value={line[field] ?? ""}
-                          disabled={locked}
-                          onChange={(event) => updateLine(line.id, { [field]: event.target.value })}
-                        />
+                      <td><input className="sheet-input" value={line.manufacturer ?? ""} disabled={locked} aria-label={`Manufacturer ${index + 1}`} onChange={(event) => updateLine(line.id, { manufacturer: event.target.value })} /></td>
+                      <td><input className="sheet-input" value={line.model ?? ""} disabled={locked} aria-label={`Model ${index + 1}`} onChange={(event) => updateLine(line.id, { model: event.target.value })} /></td>
+                      <td><input className="sheet-input" value={line.partNumber ?? ""} disabled={locked} aria-label={`Part number ${index + 1}`} onChange={(event) => updateLine(line.id, { partNumber: event.target.value })} /></td>
+                      <td><input className="sheet-input sheet-input-item" value={line.specification ?? ""} disabled={locked} aria-label={`Specification ${index + 1}`} onChange={(event) => updateLine(line.id, { specification: event.target.value })} /></td>
+                      <td><input className="sheet-input sheet-input-num" value={line.qty} disabled={locked} aria-label={`Quantity ${index + 1}`} onChange={(event) => updateLine(line.id, { qty: event.target.value })} /></td>
+                      <td><input className="sheet-input" value={line.unit ?? ""} disabled={locked} aria-label={`Unit ${index + 1}`} onChange={(event) => updateLine(line.id, { unit: event.target.value })} /></td>
+                      <td><input className="sheet-input" value={line.supplier ?? ""} disabled={locked} aria-label={`Supplier ${index + 1}`} onChange={(event) => updateLine(line.id, { supplier: event.target.value })} /></td>
+                      <td>
+                        <select className="sheet-select" value={line.source} disabled={locked} aria-label={`Source ${index + 1}`} onChange={(event) => updateLine(line.id, { source: event.target.value as SourceMode })}>
+                          {SOURCES.map((source) => (
+                            <option key={source}>{source}</option>
+                          ))}
+                        </select>
                       </td>
-                    ))}
-                    <td>
-                      <select
-                        className="sheet-select"
-                        aria-label={`Source ${index + 1}`}
-                        value={line.source}
-                        disabled={locked}
-                        onChange={(event) => updateLine(line.id, { source: event.target.value as SourceMode })}
-                      >
-                        {SOURCES.map((source) => (
-                          <option key={source}>{source}</option>
-                        ))}
-                      </select>
-                    </td>
-                    <td>
-                      <select
-                        className="sheet-select"
-                        aria-label={`Currency ${index + 1}`}
-                        value={line.currency}
-                        disabled={locked}
-                        onChange={(event) => updateLine(line.id, { currency: event.target.value as SheetCurrency })}
-                      >
-                        {CURRENCIES.map((currency) => (
-                          <option key={currency}>{currency}</option>
-                        ))}
-                      </select>
-                    </td>
-                    {(["qty", "base", "freight", "msc"] as const).map((field) => (
-                      <td key={field}>
-                        <input
-                          className="sheet-input sheet-input-num"
-                          aria-label={`${field} ${index + 1}`}
-                          inputMode="decimal"
-                          value={
-                            locked
-                              ? new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(
-                                  Number(line[field] || 0),
-                                )
-                              : line[field]
-                          }
-                          disabled={locked}
-                          onChange={(event) => updateLine(line.id, { [field]: event.target.value })}
-                        />
+                      <td>
+                        <select className="sheet-select" value={local ? "NGN" : line.currency} disabled={locked || local} aria-label={`Currency ${index + 1}`} onChange={(event) => updateLine(line.id, { currency: event.target.value as SheetCurrency })}>
+                          {CURRENCIES.map((currency) => (
+                            <option key={currency}>{currency}</option>
+                          ))}
+                        </select>
                       </td>
-                    ))}
-                    {(
-                      [
-                        ["delivery", "Delivery"],
-                        ["warehouse", "Warehouse"],
-                        ["markup", "Markup"],
-                      ] as const
-                    ).map(([field, label]) => (
-                      <td key={field}>
-                        <input
-                          className="sheet-input sheet-input-num"
-                          aria-label={`${label} ${index + 1}`}
-                          value={line[field] ?? ""}
-                          disabled={locked}
-                          onChange={(event) => updateLine(line.id, { [field]: event.target.value })}
-                        />
+                      <td><input className="sheet-input sheet-input-num" value={line.base} disabled={locked} aria-label={`Base ${index + 1}`} onChange={(event) => updateLine(line.id, { base: event.target.value })} /></td>
+                      <td><input className="sheet-input sheet-input-num" value={line.msc} disabled={locked} aria-label={`Other charges ${index + 1}`} onChange={(event) => updateLine(line.id, { msc: event.target.value })} /></td>
+                      <td>{local ? <Dash /> : formatAmount(line.surcharge)}</td>
+                      <td>{sea ? formatAmount(line.insurance) : <Dash />}</td>
+                      <td>
+                        {local ? (
+                          formatAmount(line.bank)
+                        ) : (
+                          <input className="sheet-input sheet-input-num" value={line.bank1Amount ?? ""} disabled={locked} aria-label={`Bank 1 ${index + 1}`} onChange={(event) => updateLine(line.id, { bank1Amount: event.target.value })} />
+                        )}
                       </td>
-                    ))}
-                    <td className="sheet-calc">{formatAmount(computed.bank)}</td>
-                    <td className="sheet-calc">{formatAmount(computed.duties)}</td>
-                    <td className="sheet-calc">{formatAmount(computed.agency)}</td>
-                    <td className="sheet-calc">{formatAmount(computed.totalNgn)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                      <td>{local ? <Dash /> : formatAmount(line.bank2)}</td>
+                      <td>
+                        {local ? (
+                          <Dash />
+                        ) : (
+                          <input className="sheet-input sheet-input-num" value={line.freight} disabled={locked} aria-label={`Freight ${index + 1}`} onChange={(event) => updateLine(line.id, { freight: event.target.value })} />
+                        )}
+                      </td>
+                      <td>{local ? <Dash /> : formatAmount(line.customs)}</td>
+                      <td>{local ? <Dash /> : formatAmount(line.soncap)}</td>
+                      <td>{sea ? formatAmount(line.shipping) : <Dash />}</td>
+                      <td>{sea ? formatAmount(line.warehouseCharge) : <Dash />}</td>
+                      <td>{local ? <Dash /> : formatAmount(line.agent)}</td>
+                      <td>{formatAmount(line.deliveryCharge)}</td>
+                      <td>
+                        <input className="sheet-input sheet-input-num" value={line.deliveryOutside ?? ""} disabled={locked} aria-label={`Delivery outside Lagos ${index + 1}`} onChange={(event) => updateLine(line.id, { deliveryOutside: event.target.value })} />
+                      </td>
+                      <td>
+                        {mode === "reviewer" ? (
+                          <input className="sheet-input sheet-input-num" value={line.markup ?? ""} disabled={locked} placeholder={String(local ? rules.localMarkup : rules.markup)} aria-label={`Markup override ${index + 1}`} onChange={(event) => updateLine(line.id, { markup: event.target.value })} />
+                        ) : (
+                          formatAmount(line.markupAmount)
+                        )}
+                      </td>
+                      <td>{formatAmount(line.systemCost)}</td>
+                      <td>{line.rate}</td>
+                      <td>{formatGrandTotal(line.unitNgn)}</td>
+                      <td>{formatGrandTotal(line.extendedNgn)}</td>
+                      <td>
+                        <input className="sheet-input sheet-input-num" value={line.installation ?? ""} disabled={locked} aria-label={`Installation percent ${index + 1}`} onChange={(event) => updateLine(line.id, { installation: event.target.value })} />
+                      </td>
+                      <td>{formatAmount(line.commission)}</td>
+                      <td>
+                        {local ? (
+                          <Dash />
+                        ) : (
+                          <span className="sheet-inline-fields">
+                            <input type="checkbox" checked={line.applySoncap ?? false} disabled={locked} aria-label={`SONCAP applies ${index + 1}`} onChange={(event) => updateLine(line.id, { applySoncap: event.target.checked })} />
+                            {line.applySoncap ? (
+                              <input className="sheet-input sheet-input-num" value={line.soncapAmount ?? ""} disabled={locked} placeholder={String(rules.soncap)} aria-label={`SONCAP amount ${index + 1}`} onChange={(event) => updateLine(line.id, { soncapAmount: event.target.value })} />
+                            ) : null}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div className="manager-sheet-actions">
+          <p className="sheet-note">
+            Items {summary.itemCount} · {estimateId} · {version}
+          </p>
+          <p className="breakdown-grand">
+            <span>Grand total (NGN)</span>
+            <strong>{formatGrandTotal(summary.grandTotalNgn)}</strong>
+          </p>
         </div>
       </section>
-
-      <section className="surface-card panel-card sheet-total">
-        <p className="sheet-note">
-          Items {summary.itemCount} · SONCAP allocated USD {formatSoncap(summary.soncapUsd)} · Locked when approved
-        </p>
-        <div className="sheet-grand">
-          <p className="sheet-grand-label">Grand total (NGN)</p>
-          <p className="sheet-grand-value">{formatGrandTotal(summary.grandTotalNgn)}</p>
-        </div>
-      </section>
-      <p className="sheet-version">
-        {estimateId} · {version}
-      </p>
     </div>
   );
 }

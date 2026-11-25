@@ -62,6 +62,7 @@ export type SheetLine = {
   supplier?: string;
   sourcing?: SourcingType;
   delivery?: string;
+  deliveryOutside?: string;
   warehouse?: string;
   markup?: string;
   freightType?: "Courier" | "Airport";
