@@ -62,6 +62,19 @@ it("uses session cookies when remember me is off", async () => {
   expect(store.set).toHaveBeenCalledWith("v11_session_only", "1", expect.objectContaining({ httpOnly: true }));
 });
 
+it("signs in an existing user even if the old password-change flag remains set", async () => {
+  signInWithPassword.mockResolvedValue({ data: { user: { id: "auth-id" } }, error: null });
+  jest.mocked(getSessionProfileByAuthId).mockResolvedValue({
+    id: "user-id", authUserId: "auth-id", email: "rep@example.test", name: "Rep",
+    role: "Representative", organizationId: "org-id", organizationName: "Test Org",
+    estimateId: "", isActive: true, mustChangePassword: true,
+    failedLoginCount: 0, lockedUntil: null,
+  });
+  const response = await POST(request());
+  expect(response.status).toBe(200);
+  expect(await response.json()).not.toHaveProperty("mustChangePassword");
+});
+
 it("reports an Auth outage without recording a wrong-password attempt", async () => {
   signInWithPassword.mockResolvedValue({ data: { user: null }, error: { status: 503, message: "Service unavailable" } });
 

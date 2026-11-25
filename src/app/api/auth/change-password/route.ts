@@ -1,13 +1,15 @@
 import { NextResponse } from "next/server";
 import { clearPasswordState } from "@/lib/auth/users";
-import { getPasswordChangeSession } from "@/lib/session";
+import { getSession } from "@/lib/session";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { log } from "@/lib/observability/logger";
 
 export async function POST(request: Request) {
-  const session = await getPasswordChangeSession();
+  const session = await getSession();
   if (!session) return NextResponse.json({ error: "Sign in required." }, { status: 401 });
-  if (!session.mustChangePassword) return NextResponse.json({ error: "Password setup is already complete." }, { status: 409 });
+  if (session.role !== "Super Admin") {
+    return NextResponse.json({ error: "Only the Super Admin can change account passwords." }, { status: 403 });
+  }
 
   const body = (await request.json().catch(() => null)) as { password?: string } | null;
   const password = typeof body?.password === "string" ? body.password : "";

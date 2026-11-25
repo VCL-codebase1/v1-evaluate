@@ -44,7 +44,10 @@ export async function PATCH(request: Request, context: Context) {
     if (body.resetPassword.length < 8) {
       return NextResponse.json({ error: "Password must be at least 8 characters." }, { status: 400 });
     }
-    patch.mustChangePassword = true;
+    if (!existing.authUserId) {
+      return NextResponse.json({ error: "This user has no linked sign-in account to reset." }, { status: 409 });
+    }
+    patch.mustChangePassword = false;
   }
 
   // Sync critical auth changes to Supabase Auth when linked.

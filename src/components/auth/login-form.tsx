@@ -41,17 +41,12 @@ export function LoginForm() {
         body: JSON.stringify({ email: result.email, password: result.password, remember }),
         signal: AbortSignal.timeout(35_000),
       });
-      const payload = (await response.json().catch(() => null)) as { error?: string; field?: Field; mustChangePassword?: boolean } | null;
+      const payload = (await response.json().catch(() => null)) as { error?: string; field?: Field } | null;
 
       if (!response.ok) {
         if (payload?.field) setErrors({ [payload.field]: payload.error });
         else setFormError(payload?.error ?? "Unable to sign in. Please try again.");
         setPending(false);
-        return;
-      }
-
-      if (payload?.mustChangePassword) {
-        window.location.replace("/change-password");
         return;
       }
 
@@ -99,9 +94,7 @@ export function LoginForm() {
       </div>
       <div className="form-row">
         <Checkbox label="Remember me" checked={remember} onChange={setRemember} name="remember" />
-        <Link href="/forgot-password" className="text-link">
-          Forgot password?
-        </Link>
+        <span className="text-subtitle">Need a reset? Contact your Super Admin.</span>
       </div>
       {formError ? <p className="text-error">{formError}</p> : null}
       <Button type="submit" variant="primary" size="xl" disabled={pending}>

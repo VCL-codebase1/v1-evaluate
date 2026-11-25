@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { SessionTopbar } from "@/components/layout/session-topbar";
 import { Sidebar } from "@/components/layout/sidebar";
 import { TopbarFallback } from "@/components/layout/topbar";
-import { getPasswordChangeSession, getSession } from "@/lib/session";
+import { getSession } from "@/lib/session";
 
 async function SidebarFromCookie() {
   const [store, session] = await Promise.all([cookies(), getSession()]);
@@ -12,9 +12,8 @@ async function SidebarFromCookie() {
 }
 
 async function WorkspaceAccess({ children }: { children: ReactNode }) {
-  const session = await getPasswordChangeSession();
+  const session = await getSession();
   if (!session) redirect("/login");
-  if (session.mustChangePassword) redirect("/change-password");
   return (
     <div className="app-shell">
       <Suspense fallback={<Sidebar />}>

@@ -39,8 +39,8 @@ export function ChangePasswordForm() {
 
   return (
     <form className="auth-form" onSubmit={onSubmit} noValidate>
-      <h1 className="text-welcome">Set your password</h1>
-      <p className="text-subtitle">Choose a private password before entering your workspace.</p>
+      <h1 className="text-welcome">Change Super Admin password</h1>
+      <p className="text-subtitle">Update the password for your own account.</p>
       <div className="form-fields">
         <TextField label="New password" name="password" type="password" autoComplete="new-password"
           value={password} onChange={(event) => setPassword(event.target.value)} />
@@ -49,7 +49,7 @@ export function ChangePasswordForm() {
       </div>
       {error ? <p className="text-error" role="alert">{error}</p> : null}
       <Button type="submit" variant="primary" size="xl" disabled={pending}>
-        {pending ? "Saving password" : "Continue to workspace"}
+        {pending ? "Saving password" : "Save password"}
       </Button>
     </form>
   );

@@ -8,7 +8,6 @@ jest.mock("@/lib/session", () => ({ getSession: jest.fn() }));
 jest.mock("@/lib/auth/users", () => ({ createUser: jest.fn(), findUserByEmail: jest.fn(), findUserById: jest.fn(), listUsers: jest.fn(), updateUserAdmin: jest.fn() }));
 jest.mock("@/lib/supabase/admin", () => ({ createSupabaseAdminClient: jest.fn() }));
 
-const inviteUserByEmail = jest.fn();
 const updateUserById = jest.fn();
 const createAuthUser = jest.fn();
 const deleteUser = jest.fn();
@@ -22,26 +21,21 @@ beforeEach(() => {
   });
   jest.mocked(findUserByEmail).mockResolvedValue(null);
   jest.mocked(createSupabaseAdminClient).mockReturnValue({ auth: { admin: {
-    inviteUserByEmail, updateUserById, createUser: createAuthUser, deleteUser,
+    updateUserById, createUser: createAuthUser, deleteUser,
   } } } as never);
-  inviteUserByEmail.mockResolvedValue({ data: { user: { id: "invited-auth-id" } }, error: null });
   updateUserById.mockResolvedValue({ error: null });
   jest.mocked(createUser).mockResolvedValue({ id: "app-user-id", email: "new@example.test" } as never);
+  jest.mocked(updateUserAdmin).mockResolvedValue({ id: "user-id", role: "Representative", isActive: true } as never);
 });
 
-it("invites a colleague and stores their organization role", async () => {
+it("rejects invitations so users receive only Super Admin-created credentials", async () => {
   const request = new Request("https://example.test/api/admin/users", {
     method: "POST", headers: { "content-type": "application/json" },
     body: JSON.stringify({ email: "new@example.test", name: "New User", role: "Representative", invite: true }),
   });
   const response = await POST(request);
-  expect(response.status).toBe(201);
-  expect(await response.json()).toMatchObject({ invitationSent: true });
-  expect(inviteUserByEmail).toHaveBeenCalledWith("new@example.test", expect.objectContaining({
-    redirectTo: "https://example.test/reset-password?invite=1",
-  }));
-  expect(updateUserById).toHaveBeenCalledWith("invited-auth-id", { app_metadata: { role: "Representative", organization_id: "org-id" } });
-  expect(createUser).toHaveBeenCalledWith(expect.objectContaining({ authUserId: "invited-auth-id", organizationId: "org-id", mustChangePassword: true }));
+  expect(response.status).toBe(400);
+  expect(createSupabaseAdminClient).not.toHaveBeenCalled();
   expect(createAuthUser).not.toHaveBeenCalled();
 });
 
@@ -61,14 +55,27 @@ it("rejects ordinary Admin access to user listing, creation, and reset", async (
   expect(createSupabaseAdminClient).not.toHaveBeenCalled();
 });
 
-it("requires password setup for temporary accounts even if the request asks to skip it", async () => {
+it("creates a user who can sign in with the assigned password", async () => {
   createAuthUser.mockResolvedValue({ data: { user: { id: "created-auth-id" } }, error: null });
   const response = await POST(new Request("https://example.test/api/admin/users", {
     method: "POST", headers: { "content-type": "application/json" },
-    body: JSON.stringify({ email: "new@example.test", name: "New User", role: "Representative", password: "temporary-password", invite: false, mustChangePassword: false }),
+    body: JSON.stringify({ email: "new@example.test", name: "New User", role: "Representative", password: "assigned-password" }),
   }));
   expect(response.status).toBe(201);
-  expect(createUser).toHaveBeenCalledWith(expect.objectContaining({ mustChangePassword: true, organizationId: "org-id" }));
+  expect(createAuthUser).toHaveBeenCalledWith(expect.objectContaining({ email: "new@example.test", password: "assigned-password", email_confirm: true }));
+  expect(createUser).toHaveBeenCalledWith(expect.objectContaining({ mustChangePassword: false, organizationId: "org-id" }));
+});
+
+it("lets the Super Admin reset an organization user's password without forcing another change", async () => {
+  jest.mocked(findUserById).mockResolvedValue({
+    id: "user-id", authUserId: "auth-user-id", organizationId: "org-id", role: "Representative",
+  } as never);
+  const response = await PATCH(new Request("https://example.test/api/admin/users/user-id", {
+    method: "PATCH", body: JSON.stringify({ resetPassword: "new-assigned-password" }),
+  }), { params: Promise.resolve({ id: "user-id" }) });
+  expect(response.status).toBe(200);
+  expect(updateUserById).toHaveBeenCalledWith("auth-user-id", expect.objectContaining({ password: "new-assigned-password" }));
+  expect(updateUserAdmin).toHaveBeenCalledWith("user-id", { mustChangePassword: false }, "org-id");
 });
 
 it("does not reset an account from another organization", async () => {
@@ -79,4 +86,15 @@ it("does not reset an account from another organization", async () => {
   expect(response.status).toBe(404);
   expect(updateUserAdmin).not.toHaveBeenCalled();
   expect(updateUserById).not.toHaveBeenCalled();
+});
+
+it("does not claim a password reset succeeded for an unlinked account", async () => {
+  jest.mocked(findUserById).mockResolvedValue({
+    id: "user-id", authUserId: null, organizationId: "org-id", role: "Representative",
+  } as never);
+  const response = await PATCH(new Request("https://example.test/api/admin/users/user-id", {
+    method: "PATCH", body: JSON.stringify({ resetPassword: "new-assigned-password" }),
+  }), { params: Promise.resolve({ id: "user-id" }) });
+  expect(response.status).toBe(409);
+  expect(updateUserAdmin).not.toHaveBeenCalled();
 });

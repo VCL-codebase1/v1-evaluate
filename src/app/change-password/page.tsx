@@ -3,14 +3,14 @@ import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import { AuthShell } from "@/components/auth/auth-shell";
 import { ChangePasswordForm } from "@/components/auth/change-password-form";
-import { getPasswordChangeSession } from "@/lib/session";
+import { getSession } from "@/lib/session";
 
-export const metadata: Metadata = { title: "Set your password" };
+export const metadata: Metadata = { title: "Change Super Admin password" };
 
 async function ChangePasswordAccess() {
-  const session = await getPasswordChangeSession();
+  const session = await getSession();
   if (!session) redirect("/login");
-  if (!session.mustChangePassword) redirect("/dashboard");
+  if (session.role !== "Super Admin") redirect("/dashboard");
   return <ChangePasswordForm />;
 }
 

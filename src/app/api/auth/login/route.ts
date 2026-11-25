@@ -9,7 +9,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { SESSION_ONLY_COOKIE } from "@/lib/auth/session-cookie";
 
 const GENERIC_AUTH_ERROR = "Email or password is incorrect.";
-const LOCKED_ERROR = "This account is temporarily unavailable. Try again later or reset your password.";
+const LOCKED_ERROR = "This account is temporarily unavailable. Contact your Super Admin.";
 
 function withTimeout<T>(promise: Promise<T>, ms: number, operation: string): Promise<T> {
   const startedAt = performance.now();
@@ -150,7 +150,7 @@ export async function POST(request: Request) {
       cookieStore.delete(SESSION_ONLY_COOKIE);
     }
 
-    return NextResponse.json({ user: session, mustChangePassword: profile.mustChangePassword });
+    return NextResponse.json({ user: session });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     log.warn("auth.login.error", { email, ip: meta.ip, message });
