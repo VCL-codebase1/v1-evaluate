@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { TextField } from "@/components/ui/text-field";
+import { canManageExchangeRates } from "@/lib/auth/roles";
 import {
   DEFAULT_RATES,
   formatAmount,
@@ -12,6 +14,12 @@ import {
 import { applySource, blankSheetLine, isLocalSource } from "@/lib/sheet-line";
 import type { ExchangeRateTable, ReviewStage, SheetCurrency, SheetLine, SourceMode } from "@/lib/types";
 import { DEFAULT_RULES, type PricingRules } from "@/lib/commercial-types";
+
+const RATE_FIELDS = [
+  { currency: "GBP" as const, label: "GBP / NGN" },
+  { currency: "EUR" as const, label: "EUR / NGN" },
+  { currency: "USD" as const, label: "USD / NGN" },
+];
 
 const SOURCES: SourceMode[] = ["Local", "Air", "Sea"];
 const CURRENCIES: SheetCurrency[] = ["NGN", "USD", "EUR", "GBP"];
@@ -39,7 +47,8 @@ export function EstimationSheet({
   const [reviewStage, setReviewStage] = useState<ReviewStage>("draft");
   const [loading, setLoading] = useState(true);
   const [hint, setHint] = useState(true);
-  const [pending, setPending] = useState<"save" | "submit" | null>(null);
+  const [pending, setPending] = useState<"save" | "submit" | "rates" | null>(null);
+  const [canEditRates, setCanEditRates] = useState(false);
   const [message, setMessage] = useState("");
 
   const locked = mode === "originator" && (reviewStage === "in_review" || reviewStage === "approved");
@@ -53,9 +62,10 @@ export function EstimationSheet({
     async function load() {
       const sessionResponse = await fetch("/api/auth/session");
       const sessionPayload = sessionResponse.ok
-        ? ((await sessionResponse.json()) as { user?: { estimateId?: string } })
+        ? ((await sessionResponse.json()) as { user?: { estimateId?: string; role?: string } })
         : null;
       const id = sessionPayload?.user?.estimateId || estimateId;
+      if (active) setCanEditRates(canManageExchangeRates(sessionPayload?.user?.role ?? ""));
       estimateIdRef.current = id;
       const response = await fetch(`/api/estimates/${id}/sheet`);
       if (!response.ok) {
@@ -101,13 +111,33 @@ export function EstimationSheet({
     );
   }
 
+  async function persistRates() {
+    if (!canEditRates) return true;
+    const response = await fetch("/api/exchange-rates", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rates }),
+    });
+    const payload = (await response.json()) as { error?: string; rates?: ExchangeRateTable };
+    if (!response.ok) {
+      setMessage(payload.error ?? "Unable to save exchange rates.");
+      return false;
+    }
+    if (payload.rates) setRates({ ...DEFAULT_RATES, ...payload.rates });
+    return true;
+  }
+
   async function saveDraft() {
     setMessage("");
     if (missingRates.length > 0) {
-      setMessage(`Set an NGN exchange rate for ${missingRates.join(", ")} before saving.`);
+      setMessage(`Set an NGN exchange rate for ${missingRates.join(", ")} above before saving.`);
       return;
     }
     setPending("save");
+    if (!(await persistRates())) {
+      setPending(null);
+      return;
+    }
     const response = await fetch(`/api/estimates/${estimateIdRef.current}/sheet`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -131,6 +161,10 @@ export function EstimationSheet({
       return;
     }
     setPending("submit");
+    if (!(await persistRates())) {
+      setPending(null);
+      return;
+    }
     const saved = await fetch(`/api/estimates/${estimateIdRef.current}/sheet`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -167,6 +201,52 @@ export function EstimationSheet({
           </button>
         )}
       </div>
+
+      <section className="surface-card panel-card sheet-rates-card">
+        <div className="sheet-rates-head">
+          <div>
+            <h2 className="text-block-title">Exchange rates</h2>
+            <p className="manager-note">Set GBP, EUR, and USD to Naira before entering line items. These are the same values as Exchange rates in the sidebar.</p>
+          </div>
+          {canEditRates && !locked ? (
+            <Button
+              type="button"
+              variant="quiet"
+              size="sm"
+              disabled={pending !== null}
+              onClick={async () => {
+                setMessage("");
+                setPending("rates");
+                const saved = await persistRates();
+                setPending(null);
+                if (saved) setMessage("Exchange rates saved.");
+              }}
+            >
+              {pending === "rates" ? "Saving rates…" : "Save rates"}
+            </Button>
+          ) : null}
+        </div>
+        <div className="rate-grid">
+          {RATE_FIELDS.map((field) => (
+            <TextField
+              key={field.currency}
+              label={field.label}
+              name={`sheet-${field.currency}`}
+              type="number"
+              min="0.000001"
+              step="any"
+              value={rates[field.currency] > 0 ? rates[field.currency] : ""}
+              readOnly={locked}
+              onChange={(event) =>
+                setRates((current) => ({ ...current, [field.currency]: Number(event.target.value) }))
+              }
+            />
+          ))}
+        </div>
+        {!canEditRates ? (
+          <p className="manager-note">These rates apply to this sheet’s NGN totals as you type. A Sales Director can save them for the organization from here or from Exchange rates.</p>
+        ) : null}
+      </section>
 
       <div className="sheet-toolbar">
         <div className="set-all">
@@ -207,7 +287,7 @@ export function EstimationSheet({
       {message ? <p className="sheet-message">{message}</p> : null}
       {missingRates.length > 0 ? (
         <p className="text-error" role="alert">
-          Set an NGN exchange rate for {missingRates.join(", ")} in <a className="text-link" href="/exchange-rates">Exchange rates</a> before saving or submitting.
+          Set an NGN exchange rate for {missingRates.join(", ")} above before saving or submitting.
         </p>
       ) : null}
 

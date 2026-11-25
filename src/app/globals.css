@@ -1431,6 +1431,29 @@ body.nav-open {
   flex-wrap: wrap;
 }
 
+.sheet-rates-card {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.sheet-rates-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.sheet-rates-head .text-block-title {
+  margin-bottom: 0.35rem;
+}
+
+@media (max-width: 48rem) {
+  .sheet-rates-head {
+    flex-direction: column;
+  }
+}
+
 .set-all {
   display: flex;
   align-items: center;
