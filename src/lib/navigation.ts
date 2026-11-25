@@ -73,7 +73,7 @@ export const NAV_ITEMS: NavItem[] = [
     label: "Users & roles",
     icon: "users",
     description: "People who can sign in to this organization.",
-    roles: ["Sales Director", "Admin", "Super Admin"],
+    roles: ["Super Admin"],
   },
   {
     href: "/audit",

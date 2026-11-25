@@ -18,6 +18,13 @@ export async function POST(request: Request) {
   try {
     const supabase = await createSupabaseServerClient();
     const { data, error } = await supabase.auth.updateUser({ password });
+    if (error && /new password should be different from the old password/i.test(error.message)) {
+      log.info("auth.password_change.same_password_rejected", { userId: session.userId });
+      return NextResponse.json(
+        { error: "Choose a password different from the one you used to sign in." },
+        { status: 400 },
+      );
+    }
     if (error || !data.user || data.user.id !== session.authUserId) {
       log.warn("auth.password_change.provider_failed", { userId: session.userId, message: error?.message });
       return NextResponse.json({ error: "Unable to update your password. Please try again." }, { status: 502 });

@@ -28,7 +28,6 @@ export async function POST(request: Request) {
     role?: string;
     password?: string;
     invite?: boolean;
-    mustChangePassword?: boolean;
   } | null;
 
   const email = typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
@@ -36,7 +35,6 @@ export async function POST(request: Request) {
   const role = typeof body?.role === "string" ? body.role : "";
   const password = typeof body?.password === "string" ? body.password : "";
   const invite = body?.invite === true;
-  const mustChangePassword = invite || (body?.mustChangePassword ?? true);
 
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return NextResponse.json({ error: "Enter a valid email.", field: "email" }, { status: 400 });
@@ -107,7 +105,7 @@ export async function POST(request: Request) {
       role,
       organizationId: session.organizationId,
       authUserId: createdAuthUserId,
-      mustChangePassword,
+      mustChangePassword: true,
       isActive: true,
     });
     createdAuthUserId = null;

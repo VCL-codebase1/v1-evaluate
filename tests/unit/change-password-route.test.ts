@@ -42,6 +42,19 @@ it("does not clear the flag when the provider rejects the password", async () =>
   expect(clearPasswordState).not.toHaveBeenCalled();
 });
 
+it("explains when the new password matches the current password", async () => {
+  updateUser.mockResolvedValue({
+    data: { user: null },
+    error: { message: "New password should be different from the old password." },
+  });
+  const response = await POST(request());
+  expect(response.status).toBe(400);
+  expect(await response.json()).toEqual({
+    error: "Choose a password different from the one you used to sign in.",
+  });
+  expect(clearPasswordState).not.toHaveBeenCalled();
+});
+
 it("requires a pending first-login password change", async () => {
   jest.mocked(getPasswordChangeSession).mockResolvedValue(null);
   expect((await POST(request())).status).toBe(401);

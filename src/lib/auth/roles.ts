@@ -10,7 +10,7 @@ export function isOrgAdmin(role: string) {
 }
 
 export function canManageUsers(role: string) {
-  return isOrgAdmin(role);
+  return role === "Super Admin";
 }
 
 export function canManageExchangeRates(role: string) {

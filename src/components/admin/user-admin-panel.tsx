@@ -55,7 +55,7 @@ export function UserAdminPanel() {
       const res = await fetch("/api/admin/users", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, invite, mustChangePassword: true }),
+        body: JSON.stringify({ ...form, invite }),
       });
       const data = (await res.json()) as { error?: string; user?: User; invitationSent?: boolean };
       if (!res.ok) throw new Error(data.error || "Failed to create user");
@@ -97,7 +97,7 @@ export function UserAdminPanel() {
       setError("Password must be at least 8 characters.");
       return;
     }
-    await patchUser(id, { resetPassword: pw, mustChangePassword: true });
+    await patchUser(id, { resetPassword: pw });
   }
 
   return (

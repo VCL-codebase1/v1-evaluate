@@ -20,7 +20,6 @@ export async function PATCH(request: Request, context: Context) {
     isActive?: boolean;
     name?: string;
     resetPassword?: string;
-    mustChangePassword?: boolean;
   } | null;
 
   const existing = await findUserById(id);
@@ -47,7 +46,6 @@ export async function PATCH(request: Request, context: Context) {
     }
     patch.mustChangePassword = true;
   }
-  if (typeof body?.mustChangePassword === "boolean") patch.mustChangePassword = body.mustChangePassword;
 
   // Sync critical auth changes to Supabase Auth when linked.
   if (existing.authUserId) {

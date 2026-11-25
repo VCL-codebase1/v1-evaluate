@@ -19,9 +19,9 @@ describe("organization roles", () => {
     expect(canActOnWorkflowStep("Sales Director", "final")).toBe(false);
   });
 
-  it("limits user management to organization admins", () => {
+  it("limits user management to the organization Super Admin", () => {
     expect(canManageUsers("Super Admin")).toBe(true);
-    expect(canManageUsers("Admin")).toBe(true);
+    expect(canManageUsers("Admin")).toBe(false);
     expect(canManageUsers("Sales Director")).toBe(false);
   });
 });
