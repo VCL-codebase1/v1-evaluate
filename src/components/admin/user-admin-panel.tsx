@@ -22,7 +22,7 @@ export function UserAdminPanel() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [form, setForm] = useState({ email: "", name: "", role: "Representative", password: "" });
-  const [invite, setInvite] = useState(true);
+  const [invite, setInvite] = useState(false);
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -133,13 +133,13 @@ export function UserAdminPanel() {
               {busy === "create" ? "Creating…" : invite ? "Send invitation" : "Create user"}
             </Button>
           </div>
-          <p className="text-subtitle">Invited users set their own password. Temporary passwords must be changed at first sign-in.</p>
+          <p className="text-subtitle">Users sign in with the credentials you create for this organization. Temporary passwords must be changed at first sign-in.</p>
         </form>
       </section>
 
       <section className="surface-card panel-card" aria-label="Users">
         <h2 className="text-section-title">Users</h2>
-        {loading ? <p>Loading…</p> : users.length === 0 ? <p>No users yet. Create the first admin/user above or via <code>node scripts/create-admin.mjs</code>.</p> : (
+        {loading ? <p>Loading…</p> : users.length === 0 ? <p>No users yet. Create the first organization user above.</p> : (
           <div className="table-wrap">
             <table className="data-table">
               <thead>
