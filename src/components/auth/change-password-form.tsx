@@ -3,6 +3,7 @@
 import { useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { TextField } from "@/components/ui/text-field";
+import { toast } from "@/lib/toast";
 
 export function ChangePasswordForm() {
   const [password, setPassword] = useState("");
@@ -13,8 +14,16 @@ export function ChangePasswordForm() {
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
-    if (password.length < 8) return setError("Password must be at least 8 characters.");
-    if (password !== confirm) return setError("Passwords do not match.");
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters.");
+      toast.error("Password must be at least 8 characters.");
+      return;
+    }
+    if (password !== confirm) {
+      setError("Passwords do not match.");
+      toast.error("Passwords do not match.");
+      return;
+    }
 
     setPending(true);
     try {
@@ -26,12 +35,17 @@ export function ChangePasswordForm() {
       });
       const payload = (await response.json().catch(() => null)) as { error?: string } | null;
       if (!response.ok) {
-        setError(payload?.error ?? "Unable to update your password. Please try again.");
+        const message = payload?.error ?? "Unable to update your password. Please try again.";
+        setError(message);
+        toast.error(message);
         return;
       }
+      toast.success("Password updated", { persist: true });
       window.location.replace("/dashboard");
     } catch {
-      setError("Unable to update your password. Check your connection and try again.");
+      const message = "Unable to update your password. Check your connection and try again.";
+      setError(message);
+      toast.error(message);
     } finally {
       setPending(false);
     }

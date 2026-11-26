@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { TextField } from "@/components/ui/text-field";
+import { toast } from "@/lib/toast";
 
 type User = {
   id: string;
@@ -22,7 +23,6 @@ export function UserAdminPanel() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [form, setForm] = useState({ email: "", name: "", role: "Representative", password: "" });
-  const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -49,7 +49,6 @@ export function UserAdminPanel() {
     e.preventDefault();
     setBusy("create");
     setError("");
-    setNotice("");
     try {
       const res = await fetch("/api/admin/users", {
         method: "POST",
@@ -61,15 +60,17 @@ export function UserAdminPanel() {
       setForm({ email: "", name: "", role: "Representative", password: "" });
       const createdUser = data.user;
       if (createdUser) setUsers((current) => [createdUser, ...current]);
-      setNotice("User created. Share the sign-in password securely.");
+      toast.success("User created. Share the sign-in password securely.");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to create user");
+      const message = e instanceof Error ? e.message : "Failed to create user";
+      setError(message);
+      toast.error(message);
     } finally {
       setBusy(null);
     }
   }
 
-  async function patchUser(id: string, payload: Record<string, unknown>) {
+  async function patchUser(id: string, payload: Record<string, unknown>, successMessage: string) {
     setBusy(id);
     setError("");
     try {
@@ -82,8 +83,11 @@ export function UserAdminPanel() {
       if (!res.ok) throw new Error(data.error || "Failed to update user");
       const updatedUser = data.user;
       if (updatedUser) setUsers((current) => current.map((user) => user.id === id ? updatedUser : user));
+      toast.success(successMessage);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to update user");
+      const message = e instanceof Error ? e.message : "Failed to update user";
+      setError(message);
+      toast.error(message);
     } finally {
       setBusy(null);
     }
@@ -94,9 +98,10 @@ export function UserAdminPanel() {
     if (!pw) return;
     if (pw.length < 8) {
       setError("Password must be at least 8 characters.");
+      toast.error("Password must be at least 8 characters.");
       return;
     }
-    await patchUser(id, { resetPassword: pw });
+    await patchUser(id, { resetPassword: pw }, "Password reset");
   }
 
   return (
@@ -106,7 +111,6 @@ export function UserAdminPanel() {
       </div>
 
       {error ? <p className="form-error">{error}</p> : null}
-      {notice ? <p className="sheet-message" role="status">{notice}</p> : null}
 
       <section className="surface-card panel-card">
         <h2 className="text-section-title">Provision user</h2>
@@ -145,7 +149,7 @@ export function UserAdminPanel() {
                     <td>{u.email}</td>
                     <td>{u.name}</td>
                     <td>
-                      {u.role === "Super Admin" ? "Super Admin" : <select value={u.role} disabled={busy === u.id} onChange={(e) => void patchUser(u.id, { role: e.target.value })}>
+                      {u.role === "Super Admin" ? "Super Admin" : <select value={u.role} disabled={busy === u.id} onChange={(e) => void patchUser(u.id, { role: e.target.value }, "Role updated")}>
                         {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
                       </select>}
                     </td>
@@ -153,7 +157,7 @@ export function UserAdminPanel() {
                     <td>{u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : "—"}</td>
                     <td>
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                        <button type="button" disabled={busy === u.id || u.role === "Super Admin"} onClick={() => void patchUser(u.id, { isActive: !u.isActive })}>
+                        <button type="button" disabled={busy === u.id || u.role === "Super Admin"} onClick={() => void patchUser(u.id, { isActive: !u.isActive }, u.isActive ? "User disabled" : "User enabled")}>
                           {u.isActive ? "Disable" : "Enable"}
                         </button>
                         <button type="button" disabled={busy === u.id || u.role === "Super Admin"} onClick={() => void resetPassword(u.id)}>

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { formatAmount, formatGrandTotal } from "@/lib/estimation";
+import { toast } from "@/lib/toast";
 import type { AuditEvent, EstimateRecord, ReviewStage, SheetLine } from "@/lib/types";
 
 const STEPS = [
@@ -194,9 +195,12 @@ export function ApprovalPanel() {
     });
     const payload = await response.json();
     if (!response.ok) {
-      setDecisionError(payload.error || "Unable to record this decision.");
+      const message = payload.error || "Unable to record this decision.";
+      setDecisionError(message);
+      toast.error(message);
       return;
     }
+    toast.success(decision === "approved" ? (isFinalStep && role !== "Line Manager" ? "Estimate approved" : "Estimate sent to the next reviewer") : "Estimate returned");
     router.refresh();
     setEstimates(null);
     const [reload, auditReload] = await Promise.all([

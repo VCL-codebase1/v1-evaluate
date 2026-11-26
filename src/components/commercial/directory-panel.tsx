@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import type { DirectoryKind, DirectoryRecord } from "@/lib/commercial-types";
+import { toast } from "@/lib/toast";
 
 export function DirectoryPanel() {
   const [kind, setKind] = useState<DirectoryKind>("client");
@@ -37,13 +38,16 @@ export function DirectoryPanel() {
     });
     const payload = await response.json();
     if (!response.ok) {
-      setError(payload.error || "Unable to add this record.");
+      const message = payload.error || "Unable to add this record.";
+      setError(message);
+      toast.error(message);
       return;
     }
     setRecords((current) => [payload.record, ...current]);
     setName("");
     setContact("");
     setEmail("");
+    toast.success(kind === "client" ? "Client added" : "Supplier added");
   }
 
   async function onImport(file: File) {
@@ -61,10 +65,13 @@ export function DirectoryPanel() {
     });
     const payload = await response.json();
     if (!response.ok) {
-      setError(payload.error || "Unable to import records.");
+      const message = payload.error || "Unable to import records.";
+      setError(message);
+      toast.error(message);
       return;
     }
     setRecords((current) => [...(payload.records ?? []), ...current]);
+    toast.success("Records imported");
   }
 
   const noun = kind === "client" ? "Clients" : "Suppliers";

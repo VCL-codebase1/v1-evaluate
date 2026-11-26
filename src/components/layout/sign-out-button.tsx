@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { toast } from "@/lib/toast";
 
 export function SignOutButton() {
   const router = useRouter();
@@ -10,7 +11,13 @@ export function SignOutButton() {
 
   async function signOut() {
     setPending(true);
-    await fetch("/api/auth/logout", { method: "POST" });
+    try {
+      const response = await fetch("/api/auth/logout", { method: "POST" });
+      if (!response.ok) throw new Error("Unable to sign out.");
+      toast.success("Signed out");
+    } catch {
+      toast.error("Unable to sign out. Please try again.");
+    }
     router.push("/login");
     router.refresh();
   }

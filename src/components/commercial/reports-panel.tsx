@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { formatGrandTotal } from "@/lib/estimation";
 import type { QuotationDraft } from "@/lib/commercial-types";
+import { toast } from "@/lib/toast";
 import type { EstimateRecord, SheetLine } from "@/lib/types";
 
 type Tab = "reports" | "quotations";
@@ -20,6 +21,7 @@ function download(name: string, rows: string[][]) {
   anchor.download = name;
   anchor.click();
   URL.revokeObjectURL(url);
+  toast.success("File downloaded");
 }
 
 export function ReportsPanel() {
@@ -126,10 +128,13 @@ export function ReportsPanel() {
     });
     const payload = await response.json();
     if (!response.ok) {
-      setError(payload.error || "Unable to send this quotation.");
+      const message = payload.error || "Unable to send this quotation.";
+      setError(message);
+      toast.error(message);
       return;
     }
     setDraft(payload.quotation);
+    toast.success("Quotation sent");
   }
 
   return (

@@ -11,6 +11,7 @@ import {
   summarizeSheet,
 } from "@/lib/estimation";
 import { applySource, blankSheetLine, isLocalSource } from "@/lib/sheet-line";
+import { toast } from "@/lib/toast";
 import type { ExchangeRateTable, ReviewStage, SheetCurrency, SheetLine, SourceMode } from "@/lib/types";
 import { DEFAULT_RULES, type PricingRules } from "@/lib/commercial-types";
 
@@ -53,7 +54,6 @@ export function EstimationSheet({
   const [hint, setHint] = useState(true);
   const [pending, setPending] = useState<"save" | "submit" | "rates" | null>(null);
   const [ratesDirty, setRatesDirty] = useState(false);
-  const [message, setMessage] = useState("");
 
   const locked = reviewStage === "in_review" || reviewStage === "approved";
   const summary = useMemo(() => summarizeSheet(lines, rates, rules), [lines, rates, rules]);
@@ -131,7 +131,7 @@ export function EstimationSheet({
     });
     const payload = (await response.json().catch(() => null)) as { error?: string; rates?: ExchangeRateTable } | null;
     if (!response.ok) {
-      setMessage(payload?.error ?? "Unable to save exchange rates.");
+      toast.error(payload?.error ?? "Unable to save exchange rates.");
       return false;
     }
     if (payload?.rates) setRates({ ...DEFAULT_RATES, ...payload.rates });
@@ -140,9 +140,8 @@ export function EstimationSheet({
   }
 
   async function saveDraft() {
-    setMessage("");
     if (missingRates.length > 0) {
-      setMessage(`Set an NGN exchange rate for ${missingRates.join(", ")} above before saving.`);
+      toast.error(`Set an NGN exchange rate for ${missingRates.join(", ")} above before saving.`);
       return;
     }
     setPending("save");
@@ -155,23 +154,22 @@ export function EstimationSheet({
       });
       const payload = (await response.json().catch(() => null)) as { error?: string; reviewStage?: ReviewStage } | null;
       if (!response.ok) {
-        setMessage(payload?.error ?? "Unable to save this draft.");
+        toast.error(payload?.error ?? "Unable to save this draft.");
         return;
       }
       if (payload?.reviewStage) setReviewStage(payload.reviewStage);
-      setMessage("Draft saved.");
+      toast.success("Draft saved");
     } catch {
-      setMessage("Unable to save this draft. Check your connection and try again.");
+      toast.error("Unable to save this draft. Check your connection and try again.");
     } finally {
       setPending(null);
     }
   }
 
   async function submit() {
-    setMessage("");
     const named = lines.filter((line) => line.item.trim());
     if (named.length === 0) {
-      setMessage("Add an item before submitting for review.");
+      toast.error("Add an item before submitting for review.");
       return;
     }
     setPending("submit");
@@ -184,19 +182,20 @@ export function EstimationSheet({
       });
       if (!saved.ok) {
         const payload = (await saved.json().catch(() => null)) as { error?: string } | null;
-        setMessage(payload?.error ?? "Unable to save this sheet.");
+        toast.error(payload?.error ?? "Unable to save this sheet.");
         return;
       }
       const submitted = await fetch(`/api/estimates/${estimateIdRef.current}/submit`, { method: "POST" });
       const payload = (await submitted.json().catch(() => null)) as { error?: string } | null;
       if (!submitted.ok) {
-        setMessage(payload?.error ?? "Unable to submit this estimate.");
+        toast.error(payload?.error ?? "Unable to submit this estimate.");
         return;
       }
+      toast.success("Estimate submitted for review");
       router.push(`/approval?estimate=${estimateIdRef.current}`);
       router.refresh();
     } catch {
-      setMessage("Unable to submit this estimate. Check your connection and try again.");
+      toast.error("Unable to submit this estimate. Check your connection and try again.");
     } finally {
       setPending(null);
     }
@@ -244,13 +243,12 @@ export function EstimationSheet({
               size="sm"
               disabled={pending !== null || !ratesDirty}
               onClick={async () => {
-                setMessage("");
                 setPending("rates");
                 try {
                   const saved = await persistRates();
-                  if (saved) setMessage("Exchange rates saved.");
+                  if (saved) toast.success("Exchange rates saved");
                 } catch {
-                  setMessage("Unable to save exchange rates. Check your connection and try again.");
+                  toast.error("Unable to save exchange rates. Check your connection and try again.");
                 } finally {
                   setPending(null);
                 }
@@ -320,7 +318,6 @@ export function EstimationSheet({
         Local purchase has no freight. Air (courier/airport) and sea freight use the quote-analysis columns from the evaluation template. Commission and installation are shown for bonus only and are not in the line cost.
       </p>
       {!loading && !rulesConfigured ? <p className="text-error" role="alert">This organization has not entered pricing rules yet. Ask an administrator to set them before submitting a quotation.</p> : null}
-      {message ? <p className="sheet-message">{message}</p> : null}
       {missingRates.length > 0 ? (
         <p className="text-error" role="alert">
           Set an NGN exchange rate for {missingRates.join(", ")} above or on each affected line before saving or submitting.

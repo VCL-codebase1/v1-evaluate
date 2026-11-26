@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { DEFAULT_RULES, type PricingRules } from "@/lib/commercial-types";
+import { toast } from "@/lib/toast";
 
 const GROUPS: { title: string; fields: { key: keyof PricingRules; label: string }[] }[] = [
   {
@@ -103,8 +104,11 @@ export function PricingRulesPanel() {
       if (!response.ok) throw new Error(payload.error || "Unable to save pricing rules.");
       setRules(payload.rules);
       setEditing(false);
+      toast.success("Pricing rules saved");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Unable to save pricing rules.");
+      const message = cause instanceof Error ? cause.message : "Unable to save pricing rules.";
+      setError(message);
+      toast.error(message);
     } finally {
       setPending(false);
     }

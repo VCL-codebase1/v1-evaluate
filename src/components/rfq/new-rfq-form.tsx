@@ -3,6 +3,7 @@
 import { useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Button, ButtonLink } from "@/components/ui/button";
+import { toast } from "@/lib/toast";
 import { cn } from "@/lib/cn";
 
 type FieldName = "clientName" | "title";
@@ -108,16 +109,21 @@ export function NewRfqForm({ originator }: { originator: string }) {
       });
       const payload = (await response.json()) as { error?: string; field?: FieldName };
       if (!response.ok) {
+        const message = payload.error ?? "Unable to create this estimate.";
         if (payload.field) setErrors({ [payload.field]: payload.error });
-        else setFormError(payload.error ?? "Unable to create this estimate.");
+        else setFormError(message);
+        toast.error(message);
         setPending(false);
         return;
       }
 
+      toast.success("RFQ created");
       router.push("/rfqs");
       router.refresh();
     } catch {
-      setFormError("Unable to create this estimate. Check your connection and try again.");
+      const message = "Unable to create this estimate. Check your connection and try again.";
+      setFormError(message);
+      toast.error(message);
       setPending(false);
     }
   }
