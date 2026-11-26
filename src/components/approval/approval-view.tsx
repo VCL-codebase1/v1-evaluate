@@ -106,10 +106,7 @@ export function ApprovalPanel() {
   }, [loadAttempt]);
 
   useEffect(() => {
-    if (!selectedId) {
-      setSheet(null);
-      return;
-    }
+    if (!selectedId) return;
     let active = true;
     fetch(`/api/estimates/${encodeURIComponent(selectedId)}/sheet`)
       .then((response) => {
@@ -142,7 +139,9 @@ export function ApprovalPanel() {
     };
   }, [loadAttempt]);
 
-  const selected = estimates?.find((estimate) => estimate.id === selectedId) ?? sheet?.estimate ?? null;
+  const selected = selectedId
+    ? estimates?.find((estimate) => estimate.id === selectedId) ?? (sheet?.estimateId === selectedId ? sheet.estimate : null) ?? null
+    : null;
   const activeSheet = selectedId && sheet?.estimateId === selectedId ? sheet : null;
   const stage = selected?.reviewStage ?? activeSheet?.reviewStage ?? null;
   const priced = useMemo(

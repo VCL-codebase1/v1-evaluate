@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Button, ButtonLink } from "@/components/ui/button";
 import { toast } from "@/lib/toast";
@@ -102,10 +102,6 @@ export function NewRfqForm({ originator }: { originator: string }) {
   const [errors, setErrors] = useState<Partial<Record<FieldName, string>>>({});
   const [formError, setFormError] = useState("");
   const [pending, setPending] = useState(false);
-
-  useEffect(() => {
-    setPending(false);
-  }, []);
 
   function setField(name: keyof FormState, value: string) {
     setForm((current) => ({ ...current, [name]: value }));
