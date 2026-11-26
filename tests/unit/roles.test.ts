@@ -1,4 +1,4 @@
-import { canActOnWorkflowStep, canDecideEstimate, canManageUsers, canSubmitEstimate } from "../../src/lib/auth/roles";
+import { canActOnWorkflowStep, canDecideEstimate, canManageExchangeRates, canManageUsers, canSubmitEstimate } from "../../src/lib/auth/roles";
 
 describe("organization roles", () => {
   it("lets a representative submit and blocks them from deciding", () => {
@@ -23,5 +23,11 @@ describe("organization roles", () => {
     expect(canManageUsers("Super Admin")).toBe(true);
     expect(canManageUsers("Admin")).toBe(false);
     expect(canManageUsers("Sales Director")).toBe(false);
+  });
+
+  it("lets representatives and line managers edit exchange rates", () => {
+    expect(canManageExchangeRates("Representative")).toBe(true);
+    expect(canManageExchangeRates("Line Manager")).toBe(true);
+    expect(canManageExchangeRates("Sales Director")).toBe(true);
   });
 });

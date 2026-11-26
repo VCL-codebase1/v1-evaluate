@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { EstimateRecord } from "@/lib/types";
 
-function statusOf(estimate: EstimateRecord, manager: boolean) {
+function statusOf(estimate: EstimateRecord, role: string) {
   if (estimate.reviewStage === "approved") return { label: "Finally Approved", tone: "approved", review: false };
   if (estimate.reviewStage === "returned" || estimate.status === "rejected") {
     return { label: "Returned to Rep", tone: "returned", review: false };
@@ -9,9 +9,11 @@ function statusOf(estimate: EstimateRecord, manager: boolean) {
   if (estimate.reviewStage === "draft") return { label: "Draft", tone: "draft", review: false };
   const waitingOnDirector = estimate.workflowStep === "sales_director";
   return {
-    label: waitingOnDirector ? "Under Sales Director Review" : "Under Line Manager Review",
+    label: waitingOnDirector
+      ? (role === "Sales Director" ? "Under your Final Review" : "Under Sales Director Review")
+      : "Under Line Manager Review",
     tone: "review",
-    review: manager && !waitingOnDirector,
+    review: (role === "Line Manager" && !waitingOnDirector) || (role === "Sales Director" && waitingOnDirector),
   };
 }
 
@@ -41,7 +43,6 @@ export function QuotationTable({
   role?: string;
   viewHref?: (estimate: EstimateRecord) => string;
 }) {
-  const manager = role === "Line Manager" || role === "Sales Director" || role === "Admin" || role === "Super Admin";
   return (
     <div className="table-scroll">
       <table className="data-table">
@@ -65,9 +66,8 @@ export function QuotationTable({
             </tr>
           ) : (
             estimates.map((estimate) => {
-              const status = statusOf(estimate, manager && role === "Line Manager");
-              const directorReview = manager && role === "Sales Director" && estimate.reviewStage === "in_review" && estimate.workflowStep === "sales_director";
-              const href = viewHref?.(estimate) ?? defaultHref(estimate, status.review || directorReview);
+              const status = statusOf(estimate, role);
+              const href = viewHref?.(estimate) ?? defaultHref(estimate, status.review);
               return (
               <tr key={estimate.id}>
                 <td className="cell-strong">{estimate.id}</td>
@@ -79,12 +79,12 @@ export function QuotationTable({
                 <td>{cell(estimate.title)}</td>
                 <td>
                   <span className={`queue-pill is-${status.tone}`}>{status.label}</span>
-                  {status.review || directorReview ? <span className="needs-you">Needs you</span> : null}
+                  {status.review ? <span className="needs-you">Needs you</span> : null}
                 </td>
                 <td>{money(estimate.totalNgn)}</td>
                 <td>
                   <Link href={href} className="queue-action">
-                    {status.review || directorReview ? "Review" : "View"}
+                    {status.review ? "Review" : "View"}
                   </Link>
                 </td>
               </tr>

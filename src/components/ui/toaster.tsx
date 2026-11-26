@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import {
   readPersistedToasts,
+  setToastPainter,
   type ToastItem,
   type ToastKind,
 } from "@/lib/toast";
@@ -82,12 +83,16 @@ export function Toaster() {
       host.querySelector(`[data-toast-id="${id}"]`)?.remove();
     }
 
+    setToastPainter((item) => showToast(host, item));
     window.addEventListener("v11:toast", onToast);
+    document.addEventListener("v11:toast", onToast);
     window.addEventListener("v11:toast-dismiss", onDismiss);
     for (const item of readPersistedToasts()) showToast(host, item);
 
     return () => {
+      setToastPainter(null);
       window.removeEventListener("v11:toast", onToast);
+      document.removeEventListener("v11:toast", onToast);
       window.removeEventListener("v11:toast-dismiss", onDismiss);
     };
   }, []);

@@ -102,6 +102,7 @@ export function NewRfqForm({ originator }: { originator: string }) {
   const [errors, setErrors] = useState<Partial<Record<FieldName, string>>>({});
   const [formError, setFormError] = useState("");
   const [pending, setPending] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
   function setField(name: keyof FormState, value: string) {
     setForm((current) => ({ ...current, [name]: value }));
@@ -110,9 +111,29 @@ export function NewRfqForm({ originator }: { originator: string }) {
     }
   }
 
-  function onFiles(event: ChangeEvent<HTMLInputElement>) {
-    const names = Array.from(event.target.files ?? []).map((file) => file.name);
-    setAttachments(names);
+  async function onFiles(event: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    if (files.length === 0) return;
+    setUploading(true);
+    try {
+      for (const file of files) {
+        const body = new FormData();
+        body.set("file", file);
+        const response = await fetch("/api/uploads", { method: "POST", body });
+        const payload = (await response.json().catch(() => null)) as { error?: string; url?: string; name?: string } | null;
+        if (!response.ok || !payload?.url) {
+          toast.error(payload?.error ?? `Unable to upload ${file.name}.`);
+          continue;
+        }
+        setAttachments((current) => [...current, `${payload.name || file.name}||${payload.url}`]);
+        toast.success(`${file.name} uploaded`);
+      }
+    } catch {
+      toast.error("Unable to upload files. Check your connection and try again.");
+    } finally {
+      setUploading(false);
+    }
   }
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
@@ -149,7 +170,7 @@ export function NewRfqForm({ originator }: { originator: string }) {
       }
 
       const estimateId = payload.estimate?.id;
-      toast.success("RFQ created");
+      toast.success("RFQ created", { persist: true });
       router.push(estimateId ? `/estimation?estimate=${encodeURIComponent(estimateId)}` : "/estimation");
       router.refresh();
     } catch {
@@ -255,14 +276,14 @@ export function NewRfqForm({ originator }: { originator: string }) {
             accept=".pdf,.xlsx,.xls,.docx,.csv,image/*"
             onChange={onFiles}
           />
-          <Button type="button" variant="primary" size="sm" onClick={() => fileRef.current?.click()}>
-            + Upload document
+          <Button type="button" variant="primary" size="sm" disabled={uploading} onClick={() => fileRef.current?.click()}>
+            {uploading ? "Uploading…" : "+ Upload document"}
           </Button>
           {attachments.length > 0 ? (
             <ul className="file-list">
-              {attachments.map((name, index) => (
-                <li key={`${name}-${index}`}>
-                  <span>{name}</span>
+              {attachments.map((entry, index) => (
+                <li key={`${entry}-${index}`}>
+                  <span>{entry.split("||")[0]}</span>
                   <button
                     type="button"
                     className="file-remove"
