@@ -64,7 +64,7 @@ The quote analysis calculation supports the workbook's two local layouts, courie
 
 - **User provisioning/role admin**: Admin-only APIs `GET/POST /api/admin/users` and `PATCH /api/admin/users/:id` plus UI `/admin/users`. CLI bootstrap: `node scripts/create-admin.mjs ...`.
 - **Secrets**: rotate `SESSION_SECRET`, `JWT_SECRET`, and any exposed `DATABASE_URL`/DB passwords before production use. Keep secrets out of source control.
-- **Pooling/runtimes**: tune `DB_POOL_MAX`, `DB_IDLE_TIMEOUT`, `DB_CONNECT_TIMEOUT`, `DB_MAX_LIFETIME`, `DB_PREPARE` per runtime (serverless: very small pool; prefer Supabase transaction pooler for serverless; keep `DB_PREPARE=false` with transaction poolers).
+- **Pooling/runtimes**: the app uses Postgres.js. Its default query pipelining can hang against Supabase's shared transaction pooler, so the runtime changes a shared pooler `:6543` URL to its session-pooler `:5432` endpoint. It limits each function instance to one connection and releases idle connections within five seconds. Keep `DB_PREPARE=false` for transaction-pooler connections used by other scripts. `DB_QUERY_TIMEOUT_MS` defaults to 10000 as a client-side backstop.
 - **Backup/restore**: enable automated backups (e.g. Supabase PITR/backups), test restore regularly to a staging DB, document RPO/RTO, and run `npm run db:migrate` after restore before serving traffic.
 - **Observability**: auth/admin/security events emit structured JSON logs; forward logs to your platform/SIEM and alert on repeated auth failures, 429s, DB health degradation, and migration failures.
 

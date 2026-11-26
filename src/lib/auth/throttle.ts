@@ -1,6 +1,7 @@
 import { createHash } from "crypto";
 import { ensureDb } from "@/lib/db/schema";
 import { sql } from "@/lib/db/client";
+import { log } from "@/lib/observability/logger";
 
 export type ThrottleConfig = {
   scope: string;
@@ -35,13 +36,27 @@ export async function checkThrottle(config: ThrottleConfig) {
 }
 
 export async function checkThrottles(ip: ThrottleConfig, email: ThrottleConfig) {
-  await ensureDb();
-  const rows = await sql()`
-    select scope, subject, blocked_until
-    from auth_throttle
-    where (scope = ${ip.scope} and subject = ${ip.subject})
-       or (scope = ${email.scope} and subject = ${email.subject})
-  `;
+  const readinessStart = performance.now();
+  try {
+    await ensureDb();
+  } finally {
+    const durationMs = Math.round(performance.now() - readinessStart);
+    if (durationMs >= 500) log.warn("auth.throttle.db_readiness_slow", { durationMs });
+  }
+  const queryStart = performance.now();
+  const rows = await (async () => {
+    try {
+      return await sql()`
+        select scope, subject, blocked_until
+        from auth_throttle
+        where (scope = ${ip.scope} and subject = ${ip.subject})
+           or (scope = ${email.scope} and subject = ${email.subject})
+      `;
+    } finally {
+      const durationMs = Math.round(performance.now() - queryStart);
+      if (durationMs >= 500) log.warn("auth.throttle.query_slow", { durationMs });
+    }
+  })();
   const now = Date.now();
   for (const config of [ip, email]) {
     const row = rows.find((entry) => entry.scope === config.scope && entry.subject === config.subject);
