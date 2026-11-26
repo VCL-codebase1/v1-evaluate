@@ -93,6 +93,7 @@ export function ApprovalPanel() {
   const [comment, setComment] = useState("");
   const [decisionError, setDecisionError] = useState("");
   const [failed, setFailed] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
   useEffect(() => {
     fetch("/api/auth/session")
@@ -117,7 +118,7 @@ export function ApprovalPanel() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [loadAttempt]);
 
   useEffect(() => {
     if (!selectedId) return;
@@ -238,6 +239,11 @@ export function ApprovalPanel() {
                 <tr>
                   <td className="table-empty" colSpan={6}>
                     The queue could not be loaded.
+                    {" "}<button type="button" className="text-link" onClick={() => {
+                      setFailed(false);
+                      setEstimates(null);
+                      setLoadAttempt((current) => current + 1);
+                    }}>Try again</button>
                   </td>
                 </tr>
               ) : estimates === null ? (

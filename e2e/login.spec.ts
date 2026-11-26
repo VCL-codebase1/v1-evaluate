@@ -4,6 +4,7 @@ test("login page is the unsigned entry", async ({ page }) => {
   await page.goto("/login");
   await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Create an organization" })).toBeVisible();
+  await expect(page.locator('link[rel="icon"]')).toHaveAttribute("href", /icon\.svg/);
 });
 
 test("unsigned visitors cannot open the workspace or password setup", async ({ page }) => {
@@ -26,6 +27,8 @@ test.describe("staging account journey", () => {
     await expect(page).toHaveURL(/\/dashboard$/);
     await page.goto("/admin/users");
     await expect(page.getByRole("heading", { name: "User administration" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Send invitation" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Create user" })).toBeVisible();
+    await page.goto("/estimation");
+    await expect(page.getByRole("heading", { name: "Estimation sheet" })).toBeVisible();
   });
 });

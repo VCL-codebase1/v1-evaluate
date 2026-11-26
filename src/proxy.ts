@@ -38,7 +38,9 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  const auth = hasSession ? await updateSupabaseSession(request) : null;
+  const auth = hasSession && (isProtected || isAuthPath)
+    ? await updateSupabaseSession(request, isAuthPath)
+    : null;
   const response = auth?.response ?? NextResponse.next({ request });
 
   if (isAuthPath && auth?.authenticated) {

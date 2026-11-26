@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { TextField } from "@/components/ui/text-field";
-import { canManageExchangeRates } from "@/lib/auth/roles";
 import {
   DEFAULT_RATES,
   formatAmount,
@@ -33,10 +32,12 @@ export function EstimationSheet({
   estimateId,
   version = "v1",
   mode = "originator",
+  canEditRates = false,
 }: {
   estimateId: string;
   version?: string;
   mode?: "originator" | "reviewer";
+  canEditRates?: boolean;
 }) {
   const router = useRouter();
   const estimateIdRef = useRef(estimateId);
@@ -47,9 +48,10 @@ export function EstimationSheet({
   const [rules, setRules] = useState<PricingRules>(DEFAULT_RULES);
   const [reviewStage, setReviewStage] = useState<ReviewStage>("draft");
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [hint, setHint] = useState(true);
   const [pending, setPending] = useState<"save" | "submit" | "rates" | null>(null);
-  const [canEditRates, setCanEditRates] = useState(false);
   const [ratesDirty, setRatesDirty] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -62,39 +64,45 @@ export function EstimationSheet({
 
   useEffect(() => {
     let active = true;
+    const controller = new AbortController();
     async function load() {
-      const sessionResponse = await fetch("/api/auth/session");
-      const sessionPayload = sessionResponse.ok
-        ? ((await sessionResponse.json()) as { user?: { estimateId?: string; role?: string } })
-        : null;
-      const id = sessionPayload?.user?.estimateId || estimateId;
-      if (active) setCanEditRates(canManageExchangeRates(sessionPayload?.user?.role ?? ""));
-      estimateIdRef.current = id;
-      const response = await fetch(`/api/estimates/${id}/sheet`);
-      if (!response.ok) {
+      setLoading(true);
+      setLoadError("");
+      estimateIdRef.current = estimateId;
+      try {
+        const response = await fetch(`/api/estimates/${encodeURIComponent(estimateId)}/sheet`, {
+          cache: "no-store",
+          signal: AbortSignal.any([controller.signal, AbortSignal.timeout(30_000)]),
+        });
+        const payload = (await response.json().catch(() => null)) as {
+          error?: string;
+          lines?: SheetLine[];
+          rates?: ExchangeRateTable;
+          rules?: PricingRules;
+          reviewStage?: ReviewStage;
+        } | null;
+        if (!response.ok || !payload) throw new Error(payload?.error || "Unable to load the estimation sheet.");
+        if (!active) return;
+        setLines(payload.lines?.length
+          ? payload.lines.map((line) => ({ ...blankSheetLine(line.id, line.source), ...line }))
+          : [blankSheetLine("line-1")]);
+        setRates({ ...DEFAULT_RATES, ...payload.rates });
+        setRules(payload.rules ?? DEFAULT_RULES);
+        setReviewStage(payload.reviewStage ?? "draft");
+      } catch (cause) {
+        if (active) setLoadError(cause instanceof Error && cause.name === "TimeoutError"
+          ? "The estimation sheet took too long to load. Try again."
+          : cause instanceof Error ? cause.message : "Unable to load the estimation sheet.");
+      } finally {
         if (active) setLoading(false);
-        return;
       }
-      const payload = (await response.json()) as {
-        lines: SheetLine[];
-        rates: ExchangeRateTable;
-        rules: PricingRules;
-        reviewStage: ReviewStage;
-      };
-      if (!active) return;
-      if (payload.lines?.length) {
-        setLines(payload.lines.map((line) => ({ ...blankSheetLine(line.id, line.source), ...line })));
-      }
-      setRates({ ...DEFAULT_RATES, ...payload.rates });
-      setRules(payload.rules ?? DEFAULT_RULES);
-      setReviewStage(payload.reviewStage ?? "draft");
-      setLoading(false);
     }
     void load();
     return () => {
       active = false;
+      controller.abort();
     };
-  }, [estimateId]);
+  }, [estimateId, loadAttempt]);
 
   function applySetAll(next: SourceMode) {
     setSetAll(next);
@@ -121,12 +129,12 @@ export function EstimationSheet({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ rates }),
     });
-    const payload = (await response.json()) as { error?: string; rates?: ExchangeRateTable };
+    const payload = (await response.json().catch(() => null)) as { error?: string; rates?: ExchangeRateTable } | null;
     if (!response.ok) {
-      setMessage(payload.error ?? "Unable to save exchange rates.");
+      setMessage(payload?.error ?? "Unable to save exchange rates.");
       return false;
     }
-    if (payload.rates) setRates({ ...DEFAULT_RATES, ...payload.rates });
+    if (payload?.rates) setRates({ ...DEFAULT_RATES, ...payload.rates });
     setRatesDirty(false);
     return true;
   }
@@ -138,23 +146,25 @@ export function EstimationSheet({
       return;
     }
     setPending("save");
-    if (ratesDirty && !(await persistRates())) {
+    try {
+      if (ratesDirty && !(await persistRates())) return;
+      const response = await fetch(`/api/estimates/${estimateIdRef.current}/sheet`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lines }),
+      });
+      const payload = (await response.json().catch(() => null)) as { error?: string; reviewStage?: ReviewStage } | null;
+      if (!response.ok) {
+        setMessage(payload?.error ?? "Unable to save this draft.");
+        return;
+      }
+      if (payload?.reviewStage) setReviewStage(payload.reviewStage);
+      setMessage("Draft saved.");
+    } catch {
+      setMessage("Unable to save this draft. Check your connection and try again.");
+    } finally {
       setPending(null);
-      return;
     }
-    const response = await fetch(`/api/estimates/${estimateIdRef.current}/sheet`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ lines }),
-    });
-    const payload = (await response.json()) as { error?: string; reviewStage?: ReviewStage };
-    setPending(null);
-    if (!response.ok) {
-      setMessage(payload.error ?? "Unable to save this draft.");
-      return;
-    }
-    if (payload.reviewStage) setReviewStage(payload.reviewStage);
-    setMessage("Draft saved.");
   }
 
   async function submit() {
@@ -165,30 +175,45 @@ export function EstimationSheet({
       return;
     }
     setPending("submit");
-    if (ratesDirty && !(await persistRates())) {
+    try {
+      if (ratesDirty && !(await persistRates())) return;
+      const saved = await fetch(`/api/estimates/${estimateIdRef.current}/sheet`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lines }),
+      });
+      if (!saved.ok) {
+        const payload = (await saved.json().catch(() => null)) as { error?: string } | null;
+        setMessage(payload?.error ?? "Unable to save this sheet.");
+        return;
+      }
+      const submitted = await fetch(`/api/estimates/${estimateIdRef.current}/submit`, { method: "POST" });
+      const payload = (await submitted.json().catch(() => null)) as { error?: string } | null;
+      if (!submitted.ok) {
+        setMessage(payload?.error ?? "Unable to submit this estimate.");
+        return;
+      }
+      router.push(`/approval?estimate=${estimateIdRef.current}`);
+      router.refresh();
+    } catch {
+      setMessage("Unable to submit this estimate. Check your connection and try again.");
+    } finally {
       setPending(null);
-      return;
     }
-    const saved = await fetch(`/api/estimates/${estimateIdRef.current}/sheet`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ lines }),
-    });
-    if (!saved.ok) {
-      const payload = (await saved.json()) as { error?: string };
-      setPending(null);
-      setMessage(payload.error ?? "Unable to save this sheet.");
-      return;
-    }
-    const submitted = await fetch(`/api/estimates/${estimateIdRef.current}/submit`, { method: "POST" });
-    const payload = (await submitted.json()) as { error?: string };
-    setPending(null);
-    if (!submitted.ok) {
-      setMessage(payload.error ?? "Unable to submit this estimate.");
-      return;
-    }
-    router.push(`/approval?estimate=${estimateIdRef.current}`);
-    router.refresh();
+  }
+
+  if (loading || loadError) {
+    return (
+      <div className="page-stack">
+        <h1 className="text-page-title">Estimation sheet</h1>
+        {loading ? <p role="status">Loading estimation sheet…</p> : (
+          <div>
+            <p className="text-error" role="alert">{loadError}</p>
+            <Button type="button" variant="primary" size="sm" onClick={() => setLoadAttempt((current) => current + 1)}>Try again</Button>
+          </div>
+        )}
+      </div>
+    );
   }
 
   return (
@@ -221,9 +246,14 @@ export function EstimationSheet({
               onClick={async () => {
                 setMessage("");
                 setPending("rates");
-                const saved = await persistRates();
-                setPending(null);
-                if (saved) setMessage("Exchange rates saved.");
+                try {
+                  const saved = await persistRates();
+                  if (saved) setMessage("Exchange rates saved.");
+                } catch {
+                  setMessage("Unable to save exchange rates. Check your connection and try again.");
+                } finally {
+                  setPending(null);
+                }
               }}
             >
               {pending === "rates" ? "Saving rates…" : "Save rates"}

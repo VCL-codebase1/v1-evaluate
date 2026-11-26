@@ -29,25 +29,46 @@ export function ReportsPanel() {
   const [lines, setLines] = useState<(SheetLine & { unitNgn?: number; extendedNgn?: number })[]>([]);
   const [draft, setDraft] = useState<QuotationDraft | null>(null);
   const [error, setError] = useState("");
+  const [listLoading, setListLoading] = useState(true);
+  const [listError, setListError] = useState("");
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
   useEffect(() => {
-    fetch("/api/estimates")
-      .then((response) => (response.ok ? response.json() : { estimates: [] }))
+    let active = true;
+    fetch("/api/estimates", { cache: "no-store" })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => null);
+        if (!response.ok || !payload) throw new Error(payload?.error || "Unable to load estimates.");
+        return payload;
+      })
       .then((payload: { estimates?: EstimateRecord[] }) => {
+        if (!active) return;
         const next = payload.estimates ?? [];
         setEstimates(next);
         const approved = next.find((estimate) => estimate.reviewStage === "approved");
         setSelectedId(approved?.id || next[0]?.id || "");
       })
-      .catch(() => setEstimates([]));
-  }, []);
+      .catch((cause: unknown) => {
+        if (active) setListError(cause instanceof Error ? cause.message : "Unable to load estimates.");
+      })
+      .finally(() => {
+        if (active) setListLoading(false);
+      });
+    return () => { active = false; };
+  }, [loadAttempt]);
 
   useEffect(() => {
     if (!selectedId) return;
     let active = true;
     Promise.all([
-      fetch(`/api/estimates/${selectedId}/sheet`).then((response) => response.json()),
-      fetch(`/api/quotations/${selectedId}`).then((response) => response.json()),
+      fetch(`/api/estimates/${selectedId}/sheet`).then((response) => {
+        if (!response.ok) throw new Error("Unable to load this quotation.");
+        return response.json();
+      }),
+      fetch(`/api/quotations/${selectedId}`).then((response) => {
+        if (!response.ok) throw new Error("Unable to load this quotation.");
+        return response.json();
+      }),
     ]).then(([sheet, quotation]) => {
       if (!active) return;
       setLines(sheet.summary?.lines ?? sheet.lines ?? []);
@@ -71,6 +92,24 @@ export function ReportsPanel() {
   }, [lines]);
   const subtotal = priced.reduce((sum, line) => sum + line.total, 0);
   const total = subtotal;
+
+  if (listLoading || listError) {
+    return (
+      <div className="page-stack">
+        <h1 className="text-page-title">Reports and quotations</h1>
+        {listLoading ? <p role="status">Loading reports…</p> : (
+          <div>
+            <p className="text-error" role="alert">{listError}</p>
+            <button type="button" className="solid-action" onClick={() => {
+              setListLoading(true);
+              setListError("");
+              setLoadAttempt((current) => current + 1);
+            }}>Try again</button>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   function patch<K extends keyof QuotationDraft>(key: K, value: QuotationDraft[K]) {
     setDraft((current) => (current ? { ...current, [key]: value } : current));

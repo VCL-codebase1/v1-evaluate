@@ -1,5 +1,6 @@
 import { cache } from "react";
 import { connection } from "next/server";
+import { isAuthSessionMissingError } from "@supabase/supabase-js";
 import type { User } from "@supabase/supabase-js";
 import { getLatestEstimateId } from "@/lib/estimates";
 import {
@@ -45,12 +46,17 @@ export function sessionUserFromProfile(profile: SessionProfile): AppSession {
 async function resolveSession(): Promise<AppSession | null> {
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase.auth.getClaims();
-  const authUserId = !error && typeof data?.claims?.sub === "string" ? data.claims.sub : null;
+  if (error) {
+    if (isAuthSessionMissingError(error) || (error.status && error.status >= 400 && error.status < 500)) return null;
+    throw error;
+  }
+  const authUserId = typeof data?.claims?.sub === "string" ? data.claims.sub : null;
   if (!authUserId) return null;
 
   let profile = await getSessionProfileByAuthId(authUserId);
   if (!profile) {
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError && userError.status !== 401 && userError.status !== 403) throw userError;
     if (!user) return null;
     // Link/create an app profile on first Supabase-authenticated access when possible.
     // For multitenant signups the organization/user profile should already exist;
@@ -97,11 +103,7 @@ async function resolveSession(): Promise<AppSession | null> {
 
 export const getSession = cache(async (): Promise<AppSession | null> => {
   await connection();
-  try {
-    return await resolveSession();
-  } catch {
-    return null;
-  }
+  return resolveSession();
 });
 
 export async function getSupabaseAuthUser(): Promise<User | null> {
