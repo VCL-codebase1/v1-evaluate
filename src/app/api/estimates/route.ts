@@ -23,6 +23,7 @@ export async function POST(request: Request) {
   const body = (await request.json().catch(() => null)) as {
     title?: string;
     clientName?: string;
+    qref?: string;
     tenderNumber?: string;
     contact?: string;
     department?: string;
@@ -52,6 +53,7 @@ export async function POST(request: Request) {
     title,
     organizationId: session.organizationId,
     clientName,
+    qref: body?.qref,
     tenderNumber: body?.tenderNumber,
     contact: body?.contact,
     department: body?.department,

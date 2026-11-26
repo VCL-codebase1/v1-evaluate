@@ -20,6 +20,7 @@ export type EstimateRecord = {
   id: string;
   title: string;
   clientName: string;
+  qref: string;
   tenderNumber: string;
   contact: string;
   department: string;

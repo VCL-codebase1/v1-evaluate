@@ -14,12 +14,19 @@ export async function POST(request: Request, context: Context) {
   }
 
   const { id } = await context.params;
-  const body = (await request.json().catch(() => null)) as { decision?: "approved" | "returned" } | null;
+  const body = (await request.json().catch(() => null)) as { decision?: "approved" | "returned"; comment?: string } | null;
   if (body?.decision !== "approved" && body?.decision !== "returned") {
     return NextResponse.json({ error: "Choose approved or returned." }, { status: 400 });
   }
 
-  const result = await decideSheet(id, auth.session.organizationId, body.decision, auth.session.name, auth.session.role);
+  const result = await decideSheet(
+    id,
+    auth.session.organizationId,
+    body.decision,
+    auth.session.name,
+    auth.session.role,
+    typeof body.comment === "string" ? body.comment : "",
+  );
   if ("error" in result) {
     const status = result.error === "Estimate not found." ? 404 : 409;
     return NextResponse.json({ error: result.error }, { status });

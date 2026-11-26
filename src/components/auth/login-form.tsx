@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { TextField } from "@/components/ui/text-field";
+import { toast } from "@/lib/toast";
 import { validateLogin } from "@/lib/validators";
 
 type Field = "email" | "password";
@@ -44,18 +45,23 @@ export function LoginForm() {
       const payload = (await response.json().catch(() => null)) as { error?: string; field?: Field } | null;
 
       if (!response.ok) {
+        const message = payload?.error ?? "Unable to sign in. Please try again.";
         if (payload?.field) setErrors({ [payload.field]: payload.error });
-        else setFormError(payload?.error ?? "Unable to sign in. Please try again.");
+        else setFormError(message);
+        toast.error(message);
         setPending(false);
         return;
       }
 
+      toast.success("Signed in", { persist: true });
       const next = new URLSearchParams(window.location.search).get("next");
       window.location.replace(next && next.startsWith("/") && !next.startsWith("//") ? next : "/dashboard");
     } catch (error) {
-      setFormError(error instanceof Error && error.name === "TimeoutError"
+      const message = error instanceof Error && error.name === "TimeoutError"
         ? "Sign-in is taking too long. Please try again."
-        : "Unable to sign in. Check your connection and try again.");
+        : "Unable to sign in. Check your connection and try again.";
+      setFormError(message);
+      toast.error(message);
       setPending(false);
     }
   }
@@ -102,11 +108,8 @@ export function LoginForm() {
       </Button>
       <p className="text-footer-note">
         New here? <Link href="/signup" className="text-link">Create an organization</Link>
-      </p>
-      <p className="text-footer-note">
-        For authorised company users only · Secure, role-based
         <br />
-        access
+        For authorised company users only · Secure, role-based access
       </p>
     </form>
   );

@@ -464,6 +464,29 @@ button {
   width: min(32.5rem, 100%);
 }
 
+.auth-form .text-welcome {
+  color: #3d4a5c;
+}
+
+.auth-form .text-subtitle,
+.auth-form .field-label,
+.auth-form .checkbox,
+.auth-form .text-footer-note {
+  color: #8b95a8;
+}
+
+.auth-form .text-link {
+  color: #5b73f5;
+  font-size: inherit;
+  font-weight: 500;
+}
+
+.auth-form .text-footer-note {
+  margin-top: 1.25rem;
+  font-size: 0.9375rem;
+  line-height: 1.55;
+}
+
 .form-fields {
   display: flex;
   flex-direction: column;
@@ -550,6 +573,13 @@ button {
   border-radius: 0.7rem;
   padding: 0.75rem 0.9rem;
   font: inherit;
+}
+
+.directory-form input::placeholder,
+.quote-fields input::placeholder,
+.rules-grid input::placeholder {
+  color: #98a2b3;
+  font-weight: 400;
 }
 
 .dashed-empty {
@@ -670,7 +700,8 @@ button {
 }
 
 .field-input::placeholder {
-  color: var(--ink);
+  color: #98a2b3;
+  font-weight: 400;
   opacity: 1;
 }
 
@@ -699,6 +730,17 @@ button {
   margin-top: 1.125rem;
 }
 
+.auth-form .form-row {
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+}
+
+.auth-form .form-row .text-subtitle {
+  margin: 0;
+  font-size: 0.9375rem;
+  line-height: 1.4;
+}
+
 .checkbox {
   display: inline-flex;
   align-items: center;
@@ -708,6 +750,10 @@ button {
   font-weight: 400;
   line-height: 1;
   cursor: pointer;
+}
+
+.auth-form .checkbox {
+  font-size: 0.9375rem;
 }
 
 .checkbox input {
@@ -1344,9 +1390,10 @@ body.nav-open {
   resize: none;
 }
 
-.rfq-input::placeholder {
-  color: #0f1b45;
-  font-weight: 600;
+.rfq-input::placeholder,
+.rfq-textarea::placeholder {
+  color: #98a2b3;
+  font-weight: 400;
 }
 
 .rfq-input:hover,
@@ -1362,6 +1409,43 @@ body.nav-open {
 
 .rfq-input.is-invalid {
   border-color: var(--danger);
+}
+
+.rfq-input[type="date"] {
+  color-scheme: light;
+  font-weight: 500;
+}
+
+.rfq-details-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem 1.25rem;
+  margin: 0;
+}
+
+.rfq-detail dt {
+  color: #767676;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.rfq-detail dd {
+  margin: 0.35rem 0 0;
+  color: #0a162e;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.sheet-preview-stack {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.sheet-preview-group h3 {
+  margin: 0 0 0.65rem;
 }
 
 .rfq-split {
@@ -1541,6 +1625,11 @@ body.nav-open {
 .sheet-select {
   min-width: 5.25rem;
   padding: 0 0.4rem;
+}
+
+.sheet-input::placeholder {
+  color: #98a2b3;
+  font-weight: 400;
 }
 
 .sheet-input:focus,
@@ -1870,7 +1959,8 @@ body.nav-open {
 
   .stat-grid,
   .workflow-steps,
-  .rfq-fields {
+  .rfq-fields,
+  .rfq-details-grid {
     grid-template-columns: 1fr 1fr;
     justify-content: stretch;
   }
@@ -2092,7 +2182,8 @@ body.nav-open {
     flex-direction: column;
   }
 
-  .rfq-fields {
+  .rfq-fields,
+  .rfq-details-grid {
     grid-template-columns: 1fr;
   }
 
@@ -2589,6 +2680,11 @@ body.nav-open {
   background: #fff;
 }
 
+.sheet-detail-grid input::placeholder {
+  color: #98a2b3;
+  font-weight: 400;
+}
+
 .sheet-detail-grid .sheet-check {
   display: flex;
   align-items: center;
@@ -2693,6 +2789,13 @@ body.nav-open {
   color: var(--ink);
 }
 
+.app-main :is(.field-input, .rfq-input, .rfq-textarea, .sheet-input,
+  .rules-grid input, .directory-form input, .quote-fields input)::placeholder {
+  color: #98a2b3;
+  font-weight: 400;
+  opacity: 1;
+}
+
 .app-main :is(.field-input, .rfq-input).is-invalid { border-color: var(--danger); }
 
 .app-main .field select, .app-main .data-table select {
@@ -2721,3 +2824,97 @@ body.nav-open {
 .app-main .table-wrap { max-width: 100%; overflow-x: auto; }
 .app-main .data-table th { font-size: 0.75rem; letter-spacing: 0.04em; }
 .app-main .form-fields > button[type="submit"] { align-self: flex-start; }
+
+.app-toast-region {
+  position: fixed;
+  top: 1.15rem;
+  right: 1.15rem;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  width: min(24rem, calc(100vw - 2rem));
+  pointer-events: none;
+}
+
+.app-toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.875rem 0.9rem;
+  border: 0.0625rem solid var(--line);
+  border-radius: 1rem;
+  background: var(--white);
+  box-shadow: var(--shadow-card);
+  animation: toast-in 0.22s ease;
+}
+
+.app-toast.is-success {
+  border-color: #b7ead8;
+  background: #f4fcf8;
+}
+
+.app-toast.is-error {
+  border-color: #f4c7c3;
+  background: #fff6f5;
+}
+
+.app-toast.is-info {
+  border-color: #d4dcff;
+  background: #f5f7ff;
+}
+
+.app-toast-icon {
+  flex: none;
+  width: 1.25rem;
+  height: 1.25rem;
+  margin-top: 0.0625rem;
+}
+
+.app-toast-message {
+  flex: 1;
+  margin: 0;
+  color: var(--ink);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.app-toast-dismiss {
+  flex: none;
+  width: 1.5rem;
+  height: 1.5rem;
+  margin: -0.2rem -0.25rem 0 0;
+  border: 0;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+.app-toast-dismiss:hover {
+  background: rgba(10, 22, 40, 0.06);
+  color: var(--ink);
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-0.45rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (max-width: 47.5rem) {
+  .app-toast-region {
+    top: auto;
+    bottom: 1rem;
+    right: 50%;
+    transform: translateX(50%);
+  }
+}

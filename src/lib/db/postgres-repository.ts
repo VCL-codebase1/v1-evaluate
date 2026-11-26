@@ -47,6 +47,7 @@ function mapEstimate(row: Record<string, unknown>): EstimateRecord {
     id: String(row.id),
     title: String(row.title ?? ""),
     clientName: String(row.client_name ?? ""),
+    qref: String(row.qref ?? ""),
     tenderNumber: String(row.tender_number ?? ""),
     contact: String(row.contact ?? ""),
     department: String(row.department ?? ""),
@@ -148,6 +149,7 @@ export async function createEstimate(input: {
   title: string;
   organizationId: string;
   clientName?: string;
+  qref?: string;
   tenderNumber?: string;
   contact?: string;
   department?: string;
@@ -169,11 +171,11 @@ export async function createEstimate(input: {
   const attachments = input.attachments?.map((n) => n.trim()).filter(Boolean) ?? [];
   const rows = await sql()`
     insert into estimates(
-      id, organization_id, title, client_name, tender_number, contact, department, date_received, deadline,
+      id, organization_id, title, client_name, qref, tender_number, contact, department, date_received, deadline,
       account_manager, originator, owner_user_id, description, remarks, attachments, mode, status,
       review_stage, workflow_step, version
     ) values (
-      ${id}, ${input.organizationId}, ${text(input.title)}, ${text(input.clientName)}, ${text(input.tenderNumber)},
+      ${id}, ${input.organizationId}, ${text(input.title)}, ${text(input.clientName)}, ${text(input.qref)}, ${text(input.tenderNumber)},
       ${text(input.contact)}, ${text(input.department)}, ${text(input.dateReceived)}, ${text(input.deadline)},
       ${text(input.accountManager)}, ${text(input.originator)}, ${input.ownerUserId}, ${text(input.description)}, ${text(input.remarks)},
       ${sql().json(attachments)}::jsonb, ${text(input.mode) || "Air freight"}, ${input.status ?? "pending"},
@@ -256,6 +258,8 @@ export async function getExchangeRates(organizationId: string): Promise<Exchange
 }
 
 export async function sheetResponse(id: string, organizationId: string, version = "v1") {
+  const estimate = await getEstimate(id, organizationId);
+  if (!estimate) return null;
   const sheet = await getSheet(id, organizationId, version);
   if (!sheet) return null;
   const frozen = sheet.reviewStage === "in_review" || sheet.reviewStage === "approved";
@@ -263,7 +267,7 @@ export async function sheetResponse(id: string, organizationId: string, version 
     frozen && sheet.rateSnapshot ? sheet.rateSnapshot : getExchangeRates(organizationId),
     frozen && sheet.pricingSnapshot ? sheet.pricingSnapshot : getPricingRules(organizationId),
   ]);
-  return { ...sheet, rates, rules, summary: quoteSummary(sheet.lines, rates, rules) };
+  return { ...sheet, estimate, rates, rules, summary: quoteSummary(sheet.lines, rates, rules) };
 }
 
 function quoteSummary(lines: SheetLine[], rates: ExchangeRateTable, rules: PricingRules) {
@@ -516,6 +520,7 @@ export async function decideSheet(
   decision: "approved" | "returned",
   actor: string,
   actorRole: string,
+  comment = "",
 ) {
   await ensureDb();
   const rules = await getPricingRules(organizationId);
@@ -549,14 +554,16 @@ export async function decideSheet(
           updated_at = now()
       where id = ${id} and organization_id = ${organizationId}
     `;
+    const note = text(comment);
+    const decisionDetail = decision === "approved"
+      ? isFinalApproval ? "Finally approved by Sales Director" : "Approved by Line Manager; sent to Sales Director"
+      : `Returned by ${actorRole}`;
     await recordAudit({
       organizationId,
-      actor,
+      actor: `${actor} (${actorRole})`,
       action: decision === "returned" ? "sheet.returned" : isFinalApproval ? "sheet.approved" : "sheet.advanced",
       estimateId: id,
-      detail: decision === "approved"
-        ? isFinalApproval ? "Finally approved by Sales Director" : "Approved by Line Manager; sent to Sales Director"
-        : `Returned by ${actorRole}`,
+      detail: note ? `${decisionDetail}: ${note}` : decisionDetail,
     }, db);
 
     return {
@@ -663,7 +670,7 @@ export function computeDashboardSummary(estimates: EstimateRecord[]): DashboardS
     progress: estimates.length === 0 ? 3 : 28,
     stats: [
       { key: "total", label: "Total estimates", value: estimates.length, tone: "purple" },
-      { key: "pending", label: "Pending review", value: count("pending"), tone: "orange" },
+      { key: "pending", label: "Pending review", value: estimates.filter((estimate) => estimate.reviewStage === "in_review").length, tone: "orange" },
       { key: "approved", label: "Approved", value: count("approved"), tone: "green" },
       { key: "rejected", label: "Returned / Rejected", value: count("rejected"), tone: "red" },
     ],
@@ -679,7 +686,7 @@ export async function getDashboardSummary(
   const rows = await sql()`
     select
       count(*)::integer as total,
-      count(*) filter (where status = 'pending')::integer as pending,
+      count(*) filter (where review_stage = 'in_review')::integer as pending,
       count(*) filter (where status = 'approved')::integer as approved,
       count(*) filter (where status = 'rejected')::integer as rejected
     from estimates where organization_id = ${organizationId}

@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { TextField } from "@/components/ui/text-field";
 import { canManageExchangeRates } from "@/lib/auth/roles";
+import { toast } from "@/lib/toast";
 import type { ExchangeRateTable } from "@/lib/types";
 
 const EMPTY_RATES: ExchangeRateTable = { NGN: 1, USD: 0, EUR: 0, GBP: 0, JPY: 0, OTHER: 0 };
@@ -14,7 +15,6 @@ export function ExchangeRatesPanel() {
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -42,7 +42,6 @@ export function ExchangeRatesPanel() {
     event.preventDefault();
     if (!canEdit) return;
     setError("");
-    setMessage("");
     setPending(true);
     try {
       const response = await fetch("/api/exchange-rates", {
@@ -53,9 +52,11 @@ export function ExchangeRatesPanel() {
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "Unable to save exchange rates.");
       setRates({ ...EMPTY_RATES, ...(payload.rates ?? {}) });
-      setMessage("Exchange rates saved.");
+      toast.success("Exchange rates saved");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Unable to save exchange rates.");
+      const message = cause instanceof Error ? cause.message : "Unable to save exchange rates.";
+      setError(message);
+      toast.error(message);
     } finally {
       setPending(false);
     }
@@ -84,7 +85,6 @@ export function ExchangeRatesPanel() {
           ))}
         </div>
         {error ? <p className="text-error" role="alert">{error}</p> : null}
-        {message ? <p role="status">{message}</p> : null}
         {canEdit ? (
           <Button type="submit" disabled={pending}>{pending ? "Saving rates…" : "Save rates"}</Button>
         ) : (

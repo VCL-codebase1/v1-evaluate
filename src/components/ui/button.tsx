@@ -6,7 +6,9 @@ type Variant = "primary" | "white" | "outline" | "quiet" | "danger";
 type Size = "sm" | "md" | "lg" | "xl" | "hero";
 
 const base =
-  "inline-flex cursor-pointer items-center justify-center gap-2 border-transparent whitespace-nowrap leading-none no-underline transition duration-150 focus-visible:outline-2 focus-visible:outline-offset-[0.1875rem] focus-visible:outline-[#2f4bff] disabled:cursor-progress disabled:opacity-[0.72] enabled:active:translate-y-[0.0625rem]";
+  "inline-flex cursor-pointer items-center justify-center gap-2 border-transparent whitespace-nowrap leading-none no-underline transition duration-150 focus-visible:outline-2 focus-visible:outline-offset-[0.1875rem] focus-visible:outline-[#2f4bff]";
+const interactive =
+  "disabled:cursor-not-allowed disabled:opacity-[0.72] enabled:active:translate-y-[0.0625rem]";
 
 const sizes: Record<Size, string> = {
   sm: "h-10 rounded-lg px-[1.0625rem] text-[0.9375rem] font-semibold tracking-normal",
@@ -36,9 +38,10 @@ function variantClass(variant: Variant) {
   return "h-[2.8125rem] rounded-lg border-0 bg-[#da3030] px-[1.375rem] text-[1.0625rem] font-bold tracking-normal text-white shadow-[var(--shadow-signout)] hover:bg-[#c42828] enabled:active:bg-[#b12222] max-[56.25rem]:h-10 max-[56.25rem]:px-[0.9rem] max-[56.25rem]:text-sm";
 }
 
-function buttonClass(variant: Variant, size: Size, fill: boolean, className?: string) {
+function buttonClass(variant: Variant, size: Size, fill: boolean, className?: string, interactiveState = false) {
   return cn(
     base,
+    interactiveState && interactive,
     variant === "danger" ? "" : sizes[size],
     variantClass(variant),
     fill && "max-[47.5rem]:w-full",
@@ -58,7 +61,7 @@ export function Button({
   size?: Size;
   fill?: boolean;
 }) {
-  return <button type={type} className={buttonClass(variant, size, fill, className)} {...props} />;
+  return <button type={type} className={buttonClass(variant, size, fill, className, true)} {...props} />;
 }
 
 export function ButtonLink({
@@ -77,7 +80,7 @@ export function ButtonLink({
   children: ReactNode;
 }) {
   return (
-    <Link href={href} className={buttonClass(variant, size, fill, className)}>
+    <Link href={href} prefetch={false} className={buttonClass(variant, size, fill, className)}>
       {children}
     </Link>
   );

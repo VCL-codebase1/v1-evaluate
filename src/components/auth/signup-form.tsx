@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { TextField } from "@/components/ui/text-field";
+import { toast } from "@/lib/toast";
 
 type Field = "organizationName" | "name" | "email" | "password";
 
@@ -50,20 +51,26 @@ export function SignupForm() {
         requiresSignIn?: boolean;
       };
       if (!response.ok) {
+        const message = payload.error || "Unable to create your organization account.";
         if (payload.field) setErrors({ [payload.field]: payload.error || "Check this field." });
-        setFormError(payload.error || "Unable to create your organization account.");
+        setFormError(message);
+        toast.error(message);
         setPending(false);
         return;
       }
       if (payload.requiresSignIn) {
+        toast.success("Organization created. Sign in to continue.");
         setPending(false);
         router.push("/login?next=%2Fdashboard");
         return;
       }
+      toast.success("Organization created");
       setPending(false);
       router.push("/dashboard");
     } catch {
-      setFormError("Unable to create your organization account. Check your connection and try again.");
+      const message = "Unable to create your organization account. Check your connection and try again.";
+      setFormError(message);
+      toast.error(message);
       setPending(false);
     }
   }

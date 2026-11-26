@@ -2,9 +2,13 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
-import { formatAmount, formatGrandTotal } from "@/lib/estimation";
-import type { AuditEvent, EstimateRecord, ReviewStage, SheetLine } from "@/lib/types";
+import { useEffect, useMemo, useState } from "react";
+import { RfqDetailsCard } from "@/components/rfq/rfq-details-card";
+import { SheetPreview } from "@/components/estimation/sheet-preview";
+import { DEFAULT_RULES, type PricingRules } from "@/lib/commercial-types";
+import { DEFAULT_RATES, formatGrandTotal, summarizeSheet } from "@/lib/estimation";
+import { toast } from "@/lib/toast";
+import type { AuditEvent, EstimateRecord, ExchangeRateTable, ReviewStage, SheetLine } from "@/lib/types";
 
 const STEPS = [
   "Estimate Created",
@@ -13,34 +17,22 @@ const STEPS = [
   "Finally Approved",
 ] as const;
 
-type ComputedLine = SheetLine & {
-  bank: number;
-  bank2?: number;
-  duties: number | null;
-  agency: number | null;
-  surcharge?: number;
-  insurance?: number;
-  soncap?: number;
-  shipping?: number;
-  warehouseCharge?: number;
-  deliveryCharge?: number;
-  markupAmount?: number;
-  systemCost?: number;
-  totalNgn: number;
-};
-
 type SheetPayload = {
   estimateId: string;
   reviewStage: ReviewStage;
-  lines: ComputedLine[];
-  summary: { grandTotalNgn: number; lines: ComputedLine[] };
+  lines: SheetLine[];
+  rates?: ExchangeRateTable;
+  rules?: PricingRules;
+  estimate?: EstimateRecord;
+  summary: { grandTotalNgn: number };
 };
 
-function statusLabel(stage: ReviewStage) {
+function statusLabel(stage: ReviewStage, step?: string) {
   if (stage === "approved") return "Finally Approved";
   if (stage === "returned") return "Returned";
+  if (stage === "in_review" && step === "sales_director") return "Under Sales Director Review";
   if (stage === "in_review") return "Under Line Manager Review";
-  return "Estimate Created";
+  return "Draft";
 }
 
 function actorLabel(actor: string) {
@@ -53,18 +45,10 @@ function historyAction(event: AuditEvent) {
   if (event.action === "item.added") return "Item added";
   if (event.action === "sheet.saved") return "Sheet updated";
   if (event.action === "sheet.submitted") return "Submitted for Line Manager review";
+  if (event.action === "sheet.advanced") return event.detail || "Approved by Line Manager";
   if (event.action === "sheet.approved") return "Finally Approved";
   if (event.action === "sheet.returned") return "Returned";
   return event.detail || "Updated";
-}
-
-function fieldValue(value: string) {
-  const amount = Number(value.replace(/,/g, ""));
-  if (!value.trim() || !Number.isFinite(amount)) return value || "0";
-  if (Number.isInteger(amount) && Math.abs(amount) >= 100000) {
-    return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(amount);
-  }
-  return value;
 }
 
 function historyStamp(value: string) {
@@ -94,6 +78,7 @@ export function ApprovalPanel() {
   const [decisionError, setDecisionError] = useState("");
   const [failed, setFailed] = useState(false);
   const [loadAttempt, setLoadAttempt] = useState(0);
+  const [deciding, setDeciding] = useState<"approved" | "returned" | null>(null);
 
   useEffect(() => {
     fetch("/api/auth/session")
@@ -123,7 +108,7 @@ export function ApprovalPanel() {
   useEffect(() => {
     if (!selectedId) return;
     let active = true;
-    fetch(`/api/estimates/${selectedId}/sheet`)
+    fetch(`/api/estimates/${encodeURIComponent(selectedId)}/sheet`)
       .then((response) => {
         if (!response.ok) throw new Error("unavailable");
         return response.json();
@@ -137,7 +122,7 @@ export function ApprovalPanel() {
     return () => {
       active = false;
     };
-  }, [selectedId]);
+  }, [selectedId, loadAttempt]);
 
   useEffect(() => {
     let active = true;
@@ -152,12 +137,21 @@ export function ApprovalPanel() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [loadAttempt]);
 
-  const selected = estimates?.find((estimate) => estimate.id === selectedId) ?? null;
+  const selected = selectedId
+    ? estimates?.find((estimate) => estimate.id === selectedId) ?? (sheet?.estimateId === selectedId ? sheet.estimate : null) ?? null
+    : null;
   const activeSheet = selectedId && sheet?.estimateId === selectedId ? sheet : null;
   const stage = selected?.reviewStage ?? activeSheet?.reviewStage ?? null;
-  const lines = (activeSheet?.summary?.lines ?? activeSheet?.lines ?? []).filter((line) => line.item.trim());
+  const priced = useMemo(
+    () => summarizeSheet(
+      activeSheet?.lines ?? [],
+      { ...DEFAULT_RATES, ...activeSheet?.rates },
+      activeSheet?.rules ?? DEFAULT_RULES,
+    ),
+    [activeSheet],
+  );
   const history = selectedId ? events.filter((event) => event.estimateId === selectedId) : [];
   const locked = stage === "in_review" || stage === "approved";
   const step = selected?.workflowStep ?? "created";
@@ -182,34 +176,34 @@ export function ApprovalPanel() {
     || role === "Admin"
     || role === "Super Admin"
   );
-  const isFinalStep = step === "sales_director" || role === "Sales Director";
+  const atDirectorStep = step === "sales_director";
+  const canSendToDirector = canDecide && !atDirectorStep && role !== "Sales Director";
+  const canFinalApprove = canDecide && atDirectorStep && role !== "Line Manager";
 
   async function decide(decision: "approved" | "returned") {
-    if (!selectedId) return;
+    if (!selectedId || deciding) return;
     setDecisionError("");
-    const response = await fetch(`/api/estimates/${selectedId}/decision`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ decision, comment }),
-    });
-    const payload = await response.json();
-    if (!response.ok) {
-      setDecisionError(payload.error || "Unable to record this decision.");
-      return;
-    }
-    router.refresh();
-    setEstimates(null);
-    const [reload, auditReload] = await Promise.all([
-      fetch("/api/estimates"),
-      fetch("/api/audit"),
-    ]);
-    if (reload.ok) {
-      const data = (await reload.json()) as { estimates: EstimateRecord[] };
-      setEstimates(data.estimates);
-    }
-    if (auditReload.ok) {
-      const data = (await auditReload.json()) as { events: AuditEvent[] };
-      setEvents(data.events ?? []);
+    setDeciding(decision);
+    try {
+      const response = await fetch(`/api/estimates/${encodeURIComponent(selectedId)}/decision`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ decision, comment }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        const message = payload.error || "Unable to record this decision.";
+        setDecisionError(message);
+        toast.error(message);
+        return;
+      }
+      toast.success(decision === "approved" ? (canFinalApprove ? "Estimate approved" : "Estimate sent to the next reviewer") : "Estimate returned");
+      setComment("");
+      router.refresh();
+      setEstimates(null);
+      setLoadAttempt((current) => current + 1);
+    } finally {
+      setDeciding(null);
     }
   }
 
@@ -217,7 +211,7 @@ export function ApprovalPanel() {
     <div className="page-stack approvals-page">
       <h1 className="text-page-title">
         {selected ? `Approval · ${selected.id}` : "Approvals"}
-        {selected ? <span className="queue-status">{statusLabel(selected.reviewStage)}</span> : null}
+        {selected ? <span className="queue-status">{statusLabel(selected.reviewStage, selected.workflowStep)}</span> : null}
       </h1>
 
       <section className="surface-card approvals-card">
@@ -227,6 +221,7 @@ export function ApprovalPanel() {
             <thead>
               <tr>
                 <th scope="col">Estimate</th>
+                <th scope="col">Qref</th>
                 <th scope="col">Client</th>
                 <th scope="col">Title</th>
                 <th scope="col">Status</th>
@@ -237,7 +232,7 @@ export function ApprovalPanel() {
             <tbody>
               {failed ? (
                 <tr>
-                  <td className="table-empty" colSpan={6}>
+                  <td className="table-empty" colSpan={7}>
                     The queue could not be loaded.
                     {" "}<button type="button" className="text-link" onClick={() => {
                       setFailed(false);
@@ -248,13 +243,13 @@ export function ApprovalPanel() {
                 </tr>
               ) : estimates === null ? (
                 <tr>
-                  <td className="table-empty" colSpan={6}>
+                  <td className="table-empty" colSpan={7}>
                     Loading quotations…
                   </td>
                 </tr>
               ) : estimates.length === 0 ? (
                 <tr>
-                  <td className="table-empty" colSpan={6}>
+                  <td className="table-empty" colSpan={7}>
                     No quotation yet
                   </td>
                 </tr>
@@ -262,20 +257,21 @@ export function ApprovalPanel() {
                 estimates.map((estimate) => (
                   <tr key={estimate.id} className={estimate.id === selectedId ? "is-selected" : undefined}>
                     <td className="cell-strong">{estimate.id}</td>
+                    <td>{estimate.qref || "—"}</td>
                     <td>
                       {estimate.clientName || "—"}
                       {estimate.clientName ? <span className="queue-by"> · by {estimate.originator || "—"}</span> : null}
                     </td>
                     <td>{estimate.title || "—"}</td>
                     <td>
-                      <span className="queue-status">{statusLabel(estimate.reviewStage)}</span>
+                      <span className="queue-status">{statusLabel(estimate.reviewStage, estimate.workflowStep)}</span>
                     </td>
                     <td>{estimate.totalNgn == null ? "—" : formatGrandTotal(estimate.totalNgn)}</td>
                     <td>
                       <button
                         type="button"
                         className="queue-action"
-                        onClick={() => router.push(`/approval?estimate=${estimate.id}`)}
+                        onClick={() => router.push(`/approval?estimate=${encodeURIComponent(estimate.id)}`)}
                       >
                         View
                       </button>
@@ -302,109 +298,35 @@ export function ApprovalPanel() {
         </ol>
       </section>
 
+      {selected ? <RfqDetailsCard estimate={selected} /> : null}
+
       <section className="surface-card approvals-card">
         <div className="breakdown-head">
           <div>
             <h2>Cost breakdown · how it was calculated</h2>
             <p>Can only be edited after review or can be directly edited by the reviewer</p>
           </div>
-          {locked ? (
+          {selectedId && !locked ? (
+            <Link href={`/estimation?estimate=${encodeURIComponent(selectedId)}`} className="add-item-btn">
+              <span aria-hidden>•</span> Add item
+            </Link>
+          ) : (
             <button type="button" className="add-item-btn" disabled>
               <span aria-hidden>•</span> Add item
             </button>
-          ) : (
-            <Link href="/estimation" className="add-item-btn">
-              <span aria-hidden>•</span> Add item
-            </Link>
           )}
         </div>
 
-        {selectedId && lines.length > 0 ? (
-          <>
-            <div className="table-scroll">
-              <table className="data-table breakdown-table">
-                <thead>
-                  <tr>
-                    {["#", "Item", "Source", "Currency", "Qty", "Base", "Other", "Freight", "Bank", "Customs", "Agency", "Delivery", "Markup", "Extended (NGN)"].map(
-                      (heading) => (
-                        <th key={heading} scope="col">
-                          {heading}
-                        </th>
-                      ),
-                    )}
-                  </tr>
-                </thead>
-                <tbody>
-                  {lines.map((line, index) => (
-                    <tr key={line.id}>
-                      <td>{index + 1}</td>
-                      <td>
-                        <input className="sheet-input sheet-input-item" value={line.item} readOnly aria-label={`Item ${index + 1}`} />
-                      </td>
-                      <td>
-                        <select className="sheet-select" value={line.source} disabled aria-label={`Source ${index + 1}`}>
-                          <option>{line.source}</option>
-                        </select>
-                      </td>
-                      <td>
-                        <select className="sheet-select" value={line.currency} disabled aria-label={`Currency ${index + 1}`}>
-                          <option>{line.currency}</option>
-                        </select>
-                      </td>
-                      {(["qty", "base", "msc"] as const).map((field) => (
-                        <td key={field}>
-                          <input
-                            className="sheet-input sheet-input-num"
-                            value={fieldValue(line[field] || "0")}
-                            readOnly
-                            aria-label={`${field} ${index + 1}`}
-                          />
-                        </td>
-                      ))}
-                      <td>
-                        <input
-                          className="sheet-input sheet-input-num"
-                          value={line.source === "Local" ? "—" : fieldValue(line.freight || "0")}
-                          readOnly
-                          aria-label={`Freight ${index + 1}`}
-                        />
-                      </td>
-                      <td className="breakdown-calc">{formatAmount(line.bank)}</td>
-                      <td className="breakdown-calc">{line.source === "Local" ? "—" : formatAmount(line.duties)}</td>
-                      <td className="breakdown-calc">{line.source === "Local" ? "—" : formatAmount(line.agency)}</td>
-                      <td className="breakdown-calc">{formatAmount(line.deliveryCharge ?? 0)}</td>
-                      <td className="breakdown-calc">{formatAmount(line.markupAmount ?? 0)}</td>
-                      <td className="breakdown-calc">{formatGrandTotal(line.totalNgn)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div className="breakdown-grand">
-              <span>Grand total (NGN)</span>
-              <strong>{formatGrandTotal(activeSheet?.summary?.grandTotalNgn ?? selected?.totalNgn ?? 0)}</strong>
-            </div>
-          </>
-        ) : (
-          <div className="table-scroll">
-            <table className="data-table breakdown-table">
-              <thead>
-                <tr>
-                  {["#", "Item", "Source", "Currency", "Qty", "Base", "Other", "Freight", "Bank", "Customs", "Agency", "Delivery", "Markup", "Extended (NGN)"].map((heading) => (
-                    <th key={heading} scope="col">{heading}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td className="table-empty" colSpan={14}>
-                    Open an estimate to see the quote-analysis breakdown.
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+        <SheetPreview
+          lines={priced.lines}
+          emptyLabel={selectedId ? "No items on this sheet yet." : "Open an estimate to see the quote-analysis breakdown."}
+        />
+        {selectedId && priced.itemCount > 0 ? (
+          <div className="breakdown-grand">
+            <span>Grand total (NGN)</span>
+            <strong>{formatGrandTotal(priced.grandTotalNgn)}</strong>
           </div>
-        )}
+        ) : null}
       </section>
 
       {selected ? (
@@ -414,17 +336,25 @@ export function ApprovalPanel() {
           <textarea id="decision-comment" className="field-input" rows={4} value={comment} onChange={(event) => setComment(event.target.value)} />
           {decisionError ? <p className="text-error" role="alert">{decisionError}</p> : null}
           <div className="form-fields">
-            {canDecide && isFinalStep && role !== "Line Manager" ? (
-              <button type="button" className="add-item-btn" onClick={() => decide("approved")}>Final Approval</button>
+            {canFinalApprove ? (
+              <button type="button" className="add-item-btn" disabled={deciding !== null} onClick={() => decide("approved")}>
+                {deciding === "approved" ? "Approving…" : "Final Approval"}
+              </button>
             ) : null}
-            {canDecide && role === "Line Manager" ? (
-              <button type="button" className="add-item-btn" onClick={() => decide("approved")}>Approve (Send to Sales Director)</button>
+            {canSendToDirector ? (
+              <button type="button" className="add-item-btn" disabled={deciding !== null} onClick={() => decide("approved")}>
+                {deciding === "approved" ? "Approving…" : "Approve (Send to Sales Director)"}
+              </button>
             ) : null}
             {canDecide ? (
-              <button type="button" className="queue-action" onClick={() => decide("returned")}>Return for Correction</button>
+              <button type="button" className="queue-action" disabled={deciding !== null} onClick={() => decide("returned")}>
+                {deciding === "returned" ? "Returning…" : "Return for Correction"}
+              </button>
             ) : null}
             {canDecide ? (
-              <button type="button" className="queue-action" onClick={() => decide("returned")}>Reject</button>
+              <button type="button" className="queue-action" disabled={deciding !== null} onClick={() => decide("returned")}>
+                Reject
+              </button>
             ) : null}
             <button type="button" className="queue-action" onClick={() => router.push("/approval")}>Close RFQ</button>
             {stage === "approved" ? (

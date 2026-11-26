@@ -3,12 +3,14 @@
 import { useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Button, ButtonLink } from "@/components/ui/button";
+import { toast } from "@/lib/toast";
 import { cn } from "@/lib/cn";
 
 type FieldName = "clientName" | "title";
 
 type FormState = {
   clientName: string;
+  qref: string;
   tenderNumber: string;
   title: string;
   contact: string;
@@ -23,6 +25,7 @@ type FormState = {
 
 const EMPTY: FormState = {
   clientName: "",
+  qref: "",
   tenderNumber: "",
   title: "",
   contact: "",
@@ -66,6 +69,31 @@ function TextInput({
   );
 }
 
+function DateInput({
+  label,
+  name,
+  value,
+  onChange,
+}: {
+  label: string;
+  name: keyof FormState;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="rfq-field">
+      <span className="rfq-label">{label}</span>
+      <input
+        className="rfq-input"
+        type="date"
+        name={name}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </label>
+  );
+}
+
 export function NewRfqForm({ originator }: { originator: string }) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -89,6 +117,7 @@ export function NewRfqForm({ originator }: { originator: string }) {
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (pending) return;
     setFormError("");
 
     const nextErrors: Partial<Record<FieldName, string>> = {};
@@ -106,18 +135,28 @@ export function NewRfqForm({ originator }: { originator: string }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...form, attachments }),
       });
-      const payload = (await response.json()) as { error?: string; field?: FieldName };
+      const payload = (await response.json()) as {
+        error?: string;
+        field?: FieldName;
+        estimate?: { id?: string };
+      };
       if (!response.ok) {
+        const message = payload.error ?? "Unable to create this estimate.";
         if (payload.field) setErrors({ [payload.field]: payload.error });
-        else setFormError(payload.error ?? "Unable to create this estimate.");
-        setPending(false);
+        else setFormError(message);
+        toast.error(message);
         return;
       }
 
-      router.push("/rfqs");
+      const estimateId = payload.estimate?.id;
+      toast.success("RFQ created");
+      router.push(estimateId ? `/estimation?estimate=${encodeURIComponent(estimateId)}` : "/estimation");
       router.refresh();
     } catch {
-      setFormError("Unable to create this estimate. Check your connection and try again.");
+      const message = "Unable to create this estimate. Check your connection and try again.";
+      setFormError(message);
+      toast.error(message);
+    } finally {
       setPending(false);
     }
   }
@@ -126,9 +165,6 @@ export function NewRfqForm({ originator }: { originator: string }) {
     <div className="page-stack">
       <div className="page-heading">
         <h1 className="text-page-title">New RFQ registration</h1>
-        <ButtonLink href="/rfqs/new" variant="primary" size="sm">
-          + New RFQ Estimate
-        </ButtonLink>
       </div>
 
       <form className="rfq-form" onSubmit={onSubmit} noValidate>
@@ -141,6 +177,13 @@ export function NewRfqForm({ originator }: { originator: string }) {
               placeholder="[Client name]"
               error={errors.clientName}
               onChange={(value) => setField("clientName", value)}
+            />
+            <TextInput
+              label="Qref"
+              name="qref"
+              value={form.qref}
+              placeholder="[Zoho quotation reference]"
+              onChange={(value) => setField("qref", value)}
             />
             <TextInput
               label="Client RFQ/tender number"
@@ -171,18 +214,16 @@ export function NewRfqForm({ originator }: { originator: string }) {
               placeholder="[Department]"
               onChange={(value) => setField("department", value)}
             />
-            <TextInput
+            <DateInput
               label="Date received"
               name="dateReceived"
               value={form.dateReceived}
-              placeholder="[Date received]"
               onChange={(value) => setField("dateReceived", value)}
             />
-            <TextInput
+            <DateInput
               label="Submission deadline"
               name="deadline"
               value={form.deadline}
-              placeholder="[Deadline]"
               onChange={(value) => setField("deadline", value)}
             />
             <TextInput
@@ -265,7 +306,7 @@ export function NewRfqForm({ originator }: { originator: string }) {
         {formError ? <p className="text-error">{formError}</p> : null}
 
         <div className="form-actions">
-          <Button type="submit" variant="primary" size="sm" disabled={pending}>
+          <Button type="submit" variant="primary" size="sm" disabled={pending} aria-busy={pending || undefined}>
             {pending ? "Creating…" : "Create estimate"}
           </Button>
           <ButtonLink href="/rfqs" variant="quiet" size="sm">
