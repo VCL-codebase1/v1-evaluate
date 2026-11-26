@@ -179,8 +179,8 @@ export async function submitEstimate(id: string, actor: ApiUser) {
   return submitSheet(id, actor.organizationId, actor.email, "v1");
 }
 
-export async function decideEstimate(id: string, decision: "approved" | "returned", actor: ApiUser) {
-  return decideSheet(id, actor.organizationId, decision, actor.name, actor.role);
+export async function decideEstimate(id: string, decision: "approved" | "returned", actor: ApiUser, comment = "") {
+  return decideSheet(id, actor.organizationId, decision, actor.name, actor.role, comment);
 }
 
 export async function listAudit(organizationId: string, estimateId?: string) {

@@ -315,7 +315,8 @@ async function handle(request: Request, context: Context) {
     const body = await readJson(request);
     const decision = body?.decision === "approved" || body?.decision === "returned" ? body.decision : null;
     if (!decision) return json({ error: "Decision must be approved or returned." }, 400);
-    const result = await decideEstimate(decisionMatch[1], decision, user);
+    const comment = typeof body?.comment === "string" ? body.comment : "";
+    const result = await decideEstimate(decisionMatch[1], decision, user, comment);
     if ("error" in result) return json({ error: result.error }, result.error === "Estimate not found." ? 404 : 409);
     return json(result.sheet);
   }

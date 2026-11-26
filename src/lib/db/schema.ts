@@ -26,6 +26,7 @@ export async function ensureDb() {
       if (rows.length === 0) {
         throw new Error("Database migrations are not current. Run `npm run db:migrate` before starting the application.");
       }
+      await sql()`alter table estimates add column if not exists qref text not null default ''`;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const reason = /schema_migrations|relation .* does not exist|migrations are not current/i.test(message)

@@ -1411,6 +1411,43 @@ body.nav-open {
   border-color: var(--danger);
 }
 
+.rfq-input[type="date"] {
+  color-scheme: light;
+  font-weight: 500;
+}
+
+.rfq-details-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem 1.25rem;
+  margin: 0;
+}
+
+.rfq-detail dt {
+  color: #767676;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.rfq-detail dd {
+  margin: 0.35rem 0 0;
+  color: #0a162e;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.sheet-preview-stack {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.sheet-preview-group h3 {
+  margin: 0 0 0.65rem;
+}
+
 .rfq-split {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1922,7 +1959,8 @@ body.nav-open {
 
   .stat-grid,
   .workflow-steps,
-  .rfq-fields {
+  .rfq-fields,
+  .rfq-details-grid {
     grid-template-columns: 1fr 1fr;
     justify-content: stretch;
   }
@@ -2144,7 +2182,8 @@ body.nav-open {
     flex-direction: column;
   }
 
-  .rfq-fields {
+  .rfq-fields,
+  .rfq-details-grid {
     grid-template-columns: 1fr;
   }
 

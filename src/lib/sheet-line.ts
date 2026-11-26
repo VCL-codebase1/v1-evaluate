@@ -44,7 +44,8 @@ export function applySource(line: SheetLine, source: SourceMode): SheetLine {
     ...line,
     source,
     sourcing: local ? "Local" : "Foreign",
-    currency: local ? "NGN" : currencyFor(source),
+    currency: local ? "NGN" : line.currency === "NGN" ? currencyFor(source) : line.currency,
     localType: local ? "Purchase" : line.localType,
+    freightType: source === "Air" ? "Airport" : line.freightType,
   };
 }

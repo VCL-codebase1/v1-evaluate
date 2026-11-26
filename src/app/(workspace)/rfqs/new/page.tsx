@@ -7,13 +7,13 @@ export const metadata: Metadata = { title: "New RFQ registration" };
 
 async function NewRfqSession() {
   const session = await getSession();
-  const originator = session?.email ?? "";
+  const originator = session?.name || session?.email || "";
   return <NewRfqForm key={originator || "guest"} originator={originator} />;
 }
 
 export default function NewRfqPage() {
   return (
-    <Suspense fallback={<NewRfqForm key="loading" originator="" />}>
+    <Suspense fallback={<p className="text-page-title">Loading registration form…</p>}>
       <NewRfqSession />
     </Suspense>
   );

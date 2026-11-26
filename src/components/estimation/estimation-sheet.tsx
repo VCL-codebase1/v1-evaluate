@@ -10,8 +10,10 @@ import {
   formatGrandTotal,
   summarizeSheet,
 } from "@/lib/estimation";
+import { SHEET_COLUMNS, SHEET_NOTES, SHEET_TABS, type SheetColId } from "@/lib/sheet-columns";
 import { applySource, blankSheetLine, isLocalSource } from "@/lib/sheet-line";
 import { toast } from "@/lib/toast";
+import type { QuoteLine } from "@/lib/quote-analysis";
 import type { ExchangeRateTable, ReviewStage, SheetCurrency, SheetLine, SourceMode } from "@/lib/types";
 import { DEFAULT_RULES, type PricingRules } from "@/lib/commercial-types";
 
@@ -22,8 +24,7 @@ const RATE_FIELDS = [
   { currency: "JPY" as const, label: "JPY / NGN" },
 ];
 
-const SOURCES: SourceMode[] = ["Local", "Air", "Sea"];
-const CURRENCIES: SheetCurrency[] = ["NGN", "USD", "EUR", "GBP", "JPY", "OTHER"];
+const FOREIGN_CURRENCIES: SheetCurrency[] = ["USD", "EUR", "GBP", "JPY", "OTHER"];
 
 function Dash() {
   return <span className="manager-na">—</span>;
@@ -83,9 +84,11 @@ export function EstimationSheet({
         } | null;
         if (!response.ok || !payload) throw new Error(payload?.error || "Unable to load the estimation sheet.");
         if (!active) return;
-        setLines(payload.lines?.length
+        const nextLines = payload.lines?.length
           ? payload.lines.map((line) => ({ ...blankSheetLine(line.id, line.source), ...line }))
-          : [blankSheetLine("line-1")]);
+          : [blankSheetLine("line-1")];
+        setLines(nextLines);
+        setSetAll(nextLines[0]?.source ?? "Local");
         setRates({ ...DEFAULT_RATES, ...payload.rates });
         setRules(payload.rules ?? DEFAULT_RULES);
         setReviewStage(payload.reviewStage ?? "draft");
@@ -159,6 +162,8 @@ export function EstimationSheet({
       }
       if (payload?.reviewStage) setReviewStage(payload.reviewStage);
       toast.success("Draft saved");
+      router.push(`/approval?estimate=${encodeURIComponent(estimateIdRef.current)}`);
+      router.refresh();
     } catch {
       toast.error("Unable to save this draft. Check your connection and try again.");
     } finally {
@@ -192,7 +197,7 @@ export function EstimationSheet({
         return;
       }
       toast.success("Estimate submitted for review");
-      router.push(`/approval?estimate=${estimateIdRef.current}`);
+      router.push(`/approval?estimate=${encodeURIComponent(estimateIdRef.current)}`);
       router.refresh();
     } catch {
       toast.error("Unable to submit this estimate. Check your connection and try again.");
@@ -200,6 +205,132 @@ export function EstimationSheet({
       setPending(null);
     }
   }
+
+  function numInput(line: QuoteLine, index: number, field: keyof SheetLine, label: string) {
+    return (
+      <input
+        className="sheet-input sheet-input-num"
+        value={(line[field] as string | undefined) ?? ""}
+        disabled={locked}
+        aria-label={`${label} ${index + 1}`}
+        onChange={(event) => updateLine(line.id, { [field]: event.target.value } as Partial<SheetLine>)}
+      />
+    );
+  }
+
+  function renderCell(col: SheetColId, line: QuoteLine, index: number) {
+    const local = setAll === "Local";
+    switch (col) {
+      case "sn":
+        return <span className="sheet-index">{index + 1}</span>;
+      case "currency":
+        if (local) return "NGN";
+        return (
+          <select
+            className="sheet-select"
+            value={line.currency}
+            disabled={locked}
+            aria-label={`Currency ${index + 1}`}
+            onChange={(event) => updateLine(line.id, { currency: event.target.value as SheetCurrency })}
+          >
+            {FOREIGN_CURRENCIES.map((currency) => (
+              <option key={currency}>{currency}</option>
+            ))}
+          </select>
+        );
+      case "item":
+        return (
+          <input
+            className="sheet-input sheet-input-item"
+            value={line.item}
+            disabled={locked}
+            aria-label={`Item ${index + 1}`}
+            onChange={(event) => updateLine(line.id, { item: event.target.value })}
+          />
+        );
+      case "qty":
+        return numInput(line, index, "qty", "Qty");
+      case "base":
+        return numInput(line, index, "base", "Base price");
+      case "other":
+        return numInput(line, index, "msc", "Other charges");
+      case "bank1":
+        return local ? formatAmount(line.bank) : numInput(line, index, "bank1Amount", "Bank 1");
+      case "deliveryCity":
+      case "delivery":
+        return formatAmount(line.deliveryCharge);
+      case "deliveryOutside":
+        return numInput(line, index, "deliveryOutside", "Delivery outside Lagos");
+      case "markup":
+        if (mode === "reviewer") {
+          return numInput(line, index, "markup", "Markup %");
+        }
+        return formatAmount(line.markupAmount);
+      case "totalNgn":
+      case "subNgn":
+        return formatGrandTotal(line.unitNgn);
+      case "commission":
+        return formatAmount(line.commission);
+      case "installation":
+        return (
+          <span className="sheet-inline-fields">
+            {numInput(line, index, "installation", "Installation %")}
+            <span className="sheet-computed-note">₦{formatGrandTotal(line.installationCharge)}</span>
+          </span>
+        );
+      case "grand":
+        return formatGrandTotal(line.extendedNgn);
+      case "surcharge":
+        return formatAmount(line.surcharge);
+      case "insurance":
+        return formatAmount(line.insurance);
+      case "bank2":
+        return formatAmount(line.bank2);
+      case "freight":
+        return numInput(line, index, "freight", "Freight");
+      case "customs":
+        return formatAmount(line.customs);
+      case "soncap":
+        return (
+          <span className="sheet-inline-fields">
+            <input
+              type="checkbox"
+              checked={line.applySoncap ?? false}
+              disabled={locked}
+              aria-label={`SONCAP applies ${index + 1}`}
+              onChange={(event) => updateLine(line.id, { applySoncap: event.target.checked })}
+            />
+            {line.applySoncap ? numInput(line, index, "soncapAmount", "SONCAP amount") : <Dash />}
+          </span>
+        );
+      case "agency":
+        return formatAmount(line.agent);
+      case "shipping":
+        return formatAmount(line.shipping);
+      case "warehouse":
+        return formatAmount(line.warehouseCharge);
+      case "subFx":
+        return formatAmount(line.systemCost);
+      case "exRate":
+        return (
+          <input
+            className="sheet-input sheet-input-num"
+            type="number"
+            min="0"
+            step="any"
+            placeholder={String(rates[line.currency] || "")}
+            value={line.exchangeRateOverride ?? ""}
+            disabled={locked}
+            aria-label={`Exchange rate ${index + 1}`}
+            onChange={(event) => updateLine(line.id, { exchangeRateOverride: event.target.value })}
+          />
+        );
+      default:
+        return <Dash />;
+    }
+  }
+
+  const columns = SHEET_COLUMNS[setAll];
 
   if (loading || loadError) {
     return (
@@ -283,16 +414,16 @@ export function EstimationSheet({
 
       <div className="sheet-toolbar">
         <div className="set-all">
-          <span>Set all:</span>
-          {SOURCES.map((option) => (
+          <span>Sheet:</span>
+          {SHEET_TABS.map((tab) => (
             <button
-              key={option}
+              key={tab.source}
               type="button"
-              className={option === setAll ? "mode-chip is-selected" : "mode-chip"}
-              onClick={() => applySetAll(option)}
+              className={tab.source === setAll ? "mode-chip is-selected" : "mode-chip"}
+              onClick={() => applySetAll(tab.source)}
               disabled={locked}
             >
-              {option === "Air" ? "Air freight" : option === "Sea" ? "Sea freight" : "Local"}
+              {tab.label}
             </button>
           ))}
         </div>
@@ -314,9 +445,7 @@ export function EstimationSheet({
         </div>
       </div>
 
-      <p className="manager-note">
-        Local purchase has no freight. Air (courier/airport) and sea freight use the quote-analysis columns from the evaluation template. Commission and installation are shown for bonus only and are not in the line cost.
-      </p>
+      <p className="manager-note">{SHEET_NOTES[setAll]}</p>
       {!loading && !rulesConfigured ? <p className="text-error" role="alert">This organization has not entered pricing rules yet. Ask an administrator to set them before submitting a quotation.</p> : null}
       {missingRates.length > 0 ? (
         <p className="text-error" role="alert">
@@ -342,166 +471,37 @@ export function EstimationSheet({
             <table className="data-table manager-table sheet-table">
               <thead>
                 <tr>
-                  {[
-                    "#",
-                    "Item description",
-                    "Manufacturer",
-                    "Model",
-                    "Part number",
-                    "Specification",
-                    "Qty",
-                    "UOM",
-                    "Supplier",
-                    "Source",
-                    "Currency",
-                    "Base price",
-                    "Other charges",
-                    "Energy surcharge",
-                    "Insurance",
-                    "Bank 1",
-                    "Bank 2",
-                    "Freight",
-                    "Customs",
-                    "SONCAP per unit (FX)",
-                    "Shipping line",
-                    "Terminal + warehouse",
-                    "Agency",
-                    "Delivery (city / Lagos)",
-                    "Delivery outside Lagos",
-                    "Markup",
-                    "Subtotal (FX)",
-                    "Ex-rate",
-                    "Unit (NGN)",
-                    "Line subtotal (NGN)",
-                    "Installation % / bonus (NGN)",
-                    "Sales commission bonus (NGN)",
-                    "SONCAP applies",
-                  ].map((heading) => (
-                    <th key={heading} scope="col">
-                      {heading}
+                  {columns.map((column) => (
+                    <th key={column.id} scope="col">
+                      {column.label}
                     </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {summary.lines.map((line, index) => {
-                  const local = isLocalSource(line);
-                  const sea = !local && line.source === "Sea";
-                  return (
-                    <tr key={line.id}>
-                      <td className="sticky-col sheet-index">{index + 1}</td>
-                      <td className="sticky-col sticky-second">
-                        <input className="sheet-input sheet-input-item" value={line.item} disabled={locked} aria-label={`Item ${index + 1}`} onChange={(event) => updateLine(line.id, { item: event.target.value })} />
+                {summary.lines.map((line, index) => (
+                  <tr key={line.id}>
+                    {columns.map((column) => (
+                      <td
+                        key={column.id}
+                        className={
+                          column.id === "sn"
+                            ? "sticky-col sheet-index"
+                            : column.id === "item"
+                              ? "sticky-col sticky-second"
+                              : column.id === "grand"
+                                ? "sheet-line-subtotal"
+                                : undefined
+                        }
+                      >
+                        {renderCell(column.id, line, index)}
                       </td>
-                      <td><input className="sheet-input" value={line.manufacturer ?? ""} disabled={locked} aria-label={`Manufacturer ${index + 1}`} onChange={(event) => updateLine(line.id, { manufacturer: event.target.value })} /></td>
-                      <td><input className="sheet-input" value={line.model ?? ""} disabled={locked} aria-label={`Model ${index + 1}`} onChange={(event) => updateLine(line.id, { model: event.target.value })} /></td>
-                      <td><input className="sheet-input" value={line.partNumber ?? ""} disabled={locked} aria-label={`Part number ${index + 1}`} onChange={(event) => updateLine(line.id, { partNumber: event.target.value })} /></td>
-                      <td><input className="sheet-input sheet-input-item" value={line.specification ?? ""} disabled={locked} aria-label={`Specification ${index + 1}`} onChange={(event) => updateLine(line.id, { specification: event.target.value })} /></td>
-                      <td><input className="sheet-input sheet-input-num" value={line.qty} disabled={locked} aria-label={`Quantity ${index + 1}`} onChange={(event) => updateLine(line.id, { qty: event.target.value })} /></td>
-                      <td><input className="sheet-input" value={line.unit ?? ""} disabled={locked} aria-label={`Unit ${index + 1}`} onChange={(event) => updateLine(line.id, { unit: event.target.value })} /></td>
-                      <td><input className="sheet-input" value={line.supplier ?? ""} disabled={locked} aria-label={`Supplier ${index + 1}`} onChange={(event) => updateLine(line.id, { supplier: event.target.value })} /></td>
-                      <td>
-                        <select className="sheet-select" value={line.source} disabled={locked} aria-label={`Source ${index + 1}`} onChange={(event) => updateLine(line.id, { source: event.target.value as SourceMode })}>
-                          {SOURCES.map((source) => (
-                            <option key={source}>{source}</option>
-                          ))}
-                        </select>
-                      </td>
-                      <td>
-                        <select className="sheet-select" value={local ? "NGN" : line.currency} disabled={locked || local} aria-label={`Currency ${index + 1}`} onChange={(event) => updateLine(line.id, { currency: event.target.value as SheetCurrency })}>
-                          {CURRENCIES.map((currency) => (
-                            <option key={currency}>{currency}</option>
-                          ))}
-                        </select>
-                      </td>
-                      <td><input className="sheet-input sheet-input-num" value={line.base} disabled={locked} aria-label={`Base ${index + 1}`} onChange={(event) => updateLine(line.id, { base: event.target.value })} /></td>
-                      <td><input className="sheet-input sheet-input-num" value={line.msc} disabled={locked} aria-label={`Other charges ${index + 1}`} onChange={(event) => updateLine(line.id, { msc: event.target.value })} /></td>
-                      <td>{local ? <Dash /> : formatAmount(line.surcharge)}</td>
-                      <td>{sea ? formatAmount(line.insurance) : <Dash />}</td>
-                      <td>
-                        {local ? (
-                          formatAmount(line.bank)
-                        ) : (
-                          <input className="sheet-input sheet-input-num" value={line.bank1Amount ?? ""} disabled={locked} aria-label={`Bank 1 ${index + 1}`} onChange={(event) => updateLine(line.id, { bank1Amount: event.target.value })} />
-                        )}
-                      </td>
-                      <td>{local ? <Dash /> : formatAmount(line.bank2)}</td>
-                      <td>
-                        {local ? (
-                          <Dash />
-                        ) : (
-                          <input className="sheet-input sheet-input-num" value={line.freight} disabled={locked} aria-label={`Freight ${index + 1}`} onChange={(event) => updateLine(line.id, { freight: event.target.value })} />
-                        )}
-                      </td>
-                      <td>{local ? <Dash /> : formatAmount(line.customs)}</td>
-                      <td>{local ? <Dash /> : formatAmount(line.soncap)}</td>
-                      <td>{sea ? formatAmount(line.shipping) : <Dash />}</td>
-                      <td>{sea ? formatAmount(line.warehouseCharge) : <Dash />}</td>
-                      <td>{local ? <Dash /> : formatAmount(line.agent)}</td>
-                      <td>{formatAmount(line.deliveryCharge)}</td>
-                      <td>
-                        <input className="sheet-input sheet-input-num" value={line.deliveryOutside ?? ""} disabled={locked} aria-label={`Delivery outside Lagos ${index + 1}`} onChange={(event) => updateLine(line.id, { deliveryOutside: event.target.value })} />
-                      </td>
-                      <td>
-                        {mode === "reviewer" ? (
-                          <input className="sheet-input sheet-input-num" value={line.markup ?? ""} disabled={locked} placeholder={String(local ? line.localType === "Purchase" ? rules.localPurchaseMarkup : rules.localMarkup : line.source === "Sea" ? rules.seaMarkup : line.freightType === "Courier" ? rules.courierMarkup : rules.markup)} aria-label={`Markup override ${index + 1}`} onChange={(event) => updateLine(line.id, { markup: event.target.value })} />
-                        ) : (
-                          formatAmount(line.markupAmount)
-                        )}
-                      </td>
-                      <td>{formatAmount(line.systemCost)}</td>
-                      <td>{line.rate}</td>
-                      <td>{formatGrandTotal(line.unitNgn)}</td>
-                      <td className="sheet-line-subtotal">{formatGrandTotal(line.extendedNgn)}</td>
-                      <td>
-                        <input className="sheet-input sheet-input-num" value={line.installation ?? ""} disabled={locked} aria-label={`Installation percent ${index + 1}`} onChange={(event) => updateLine(line.id, { installation: event.target.value })} />
-                        <span className="sheet-computed-note">₦{formatGrandTotal(line.installationCharge)}</span>
-                      </td>
-                      <td>{formatAmount(line.commission)}</td>
-                      <td>
-                        {local ? (
-                          <Dash />
-                        ) : (
-                          <span className="sheet-inline-fields">
-                            <input type="checkbox" checked={line.applySoncap ?? false} disabled={locked} aria-label={`SONCAP applies ${index + 1}`} onChange={(event) => updateLine(line.id, { applySoncap: event.target.checked })} />
-                            {line.applySoncap ? (
-                              <input className="sheet-input sheet-input-num" value={line.soncapAmount ?? ""} disabled={locked} placeholder={String(rules.soncap)} aria-label={`SONCAP amount ${index + 1}`} onChange={(event) => updateLine(line.id, { soncapAmount: event.target.value })} />
-                            ) : null}
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
+                    ))}
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
-        </div>
-        <div className="sheet-line-options">
-          {summary.lines.map((line, index) => {
-            const local = isLocalSource(line);
-            return (
-              <details key={line.id} className="sheet-line-detail">
-                <summary>Item {index + 1}: {line.item || "Untitled item"} · line subtotal ₦{formatGrandTotal(line.extendedNgn)} · additional inputs</summary>
-                <div className="sheet-detail-grid">
-                  <label>Item number<input value={line.itemNumber ?? ""} disabled={locked} onChange={(event) => updateLine(line.id, { itemNumber: event.target.value })} /></label>
-                  {local ? (
-                    <label>Local layout<select value={line.localType ?? "Purchase"} disabled={locked} onChange={(event) => updateLine(line.id, { localType: event.target.value as "Purchase" | "Standard" })}><option value="Purchase">Purchase</option><option value="Standard">Standard / tax</option></select></label>
-                  ) : line.source === "Air" ? (
-                    <label>Air freight method<select value={line.freightType ?? "Airport"} disabled={locked || line.source !== "Air"} onChange={(event) => updateLine(line.id, { freightType: event.target.value as "Airport" | "Courier" })}><option value="Airport">Airport</option><option value="Courier">Courier</option></select></label>
-                  ) : null}
-                  {!local ? <label>Exchange rate for this item<input type="number" min="0" step="any" placeholder={String(rates[line.currency] || "Organization rate")} value={line.exchangeRateOverride ?? ""} disabled={locked} onChange={(event) => updateLine(line.id, { exchangeRateOverride: event.target.value })} /></label> : null}
-                  {line.currency === "OTHER" ? <label>Other currency code<input maxLength={12} value={line.otherCurrencyCode ?? ""} disabled={locked} placeholder="Currency code" onChange={(event) => updateLine(line.id, { otherCurrencyCode: event.target.value })} /></label> : null}
-                  {!local ? <label>Customs rate override %<input type="number" min="0" step="any" value={line.customsRate ?? ""} disabled={locked} onChange={(event) => updateLine(line.id, { customsRate: event.target.value })} /></label> : null}
-                  {!local ? <label>Agency rate override %<input type="number" min="0" step="any" value={line.agencyRate ?? ""} disabled={locked} onChange={(event) => updateLine(line.id, { agencyRate: event.target.value })} /></label> : null}
-                  {line.source === "Sea" ? <label>Shipping line override %<input type="number" min="0" step="any" value={line.shippingRate ?? ""} disabled={locked} onChange={(event) => updateLine(line.id, { shippingRate: event.target.value })} /></label> : null}
-                  {line.source === "Sea" ? <label>Terminal and warehouse amount (FX)<input type="number" min="0" step="any" value={line.warehouse ?? ""} disabled={locked} onChange={(event) => updateLine(line.id, { warehouse: event.target.value })} /></label> : null}
-                  <label>Delivery within city amount (FX or NGN)<input type="number" min="0" step="any" value={line.delivery ?? ""} disabled={locked} onChange={(event) => updateLine(line.id, { delivery: event.target.value })} /></label>
-                  {local && line.localType === "Standard" ? <label className="sheet-check"><input type="checkbox" checked={line.applyVat ?? false} disabled={locked} onChange={(event) => updateLine(line.id, { applyVat: event.target.checked })} /> Apply VAT and withholding</label> : null}
-                </div>
-              </details>
-            );
-          })}
         </div>
         <div className="manager-sheet-actions">
           <p className="sheet-note">
