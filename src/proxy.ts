@@ -13,6 +13,7 @@ const PROTECTED_PREFIXES = [
   "/pricing-rules",
   "/audit",
   "/admin",
+  "/change-password",
 ];
 
 const AUTH_PATHS = ["/login", "/signup"];
