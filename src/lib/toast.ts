@@ -15,6 +15,13 @@ const MAX = 4;
 export const TOAST_EVENT = "v11:toast";
 export const TOAST_DISMISS_EVENT = "v11:toast-dismiss";
 
+type ToastPainter = (item: ToastItem) => void;
+let painter: ToastPainter | null = null;
+
+export function setToastPainter(next: ToastPainter | null) {
+  painter = next;
+}
+
 function makeId() {
   return typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
@@ -51,6 +58,7 @@ function push(kind: ToastKind, message: string, options?: ToastOptions) {
   if (!text) return;
   const item: ToastItem = { id: makeId(), kind, message: text };
   if (options?.persist) persist(item);
+  painter?.(item);
   emit(item);
 }
 

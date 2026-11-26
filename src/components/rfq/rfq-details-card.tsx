@@ -1,4 +1,4 @@
-import { displayValue, formatDateField } from "@/lib/format-display";
+import { attachmentName, attachmentUrl, displayValue, formatDateField } from "@/lib/format-display";
 import type { EstimateRecord } from "@/lib/types";
 
 export function RfqDetailsCard({ estimate }: { estimate: EstimateRecord }) {
@@ -15,7 +15,6 @@ export function RfqDetailsCard({ estimate }: { estimate: EstimateRecord }) {
     { label: "Originator", value: displayValue(estimate.originator) },
     { label: "Description", value: displayValue(estimate.description) },
     { label: "Remarks", value: displayValue(estimate.remarks) },
-    { label: "Attachments", value: displayValue(estimate.attachments) },
   ];
 
   return (
@@ -28,6 +27,24 @@ export function RfqDetailsCard({ estimate }: { estimate: EstimateRecord }) {
             <dd>{field.value}</dd>
           </div>
         ))}
+        <div className="rfq-detail">
+          <dt>Attachments</dt>
+          <dd>
+            {estimate.attachments.length === 0 ? (
+              "—"
+            ) : (
+              <ul className="file-list">
+                {estimate.attachments.map((entry) => (
+                  <li key={entry}>
+                    <a className="text-link" href={attachmentUrl(entry)} target="_blank" rel="noreferrer">
+                      {attachmentName(entry)}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </dd>
+        </div>
       </dl>
     </section>
   );

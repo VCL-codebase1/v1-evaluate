@@ -1,9 +1,9 @@
 import type { SourceMode } from "@/lib/types";
 
 export const SHEET_TABS: { source: SourceMode; label: string }[] = [
-  { source: "Local", label: "Local purchase" },
-  { source: "Air", label: "Foreign courier / airport" },
-  { source: "Sea", label: "Sea freight" },
+  { source: "Local", label: "Local" },
+  { source: "Air", label: "Air" },
+  { source: "Sea", label: "Freight" },
 ];
 
 export type SheetColId =
@@ -105,8 +105,43 @@ export const SHEET_COLUMNS: Record<SourceMode, { id: SheetColId; label: string }
   ],
 };
 
+export const UNIFIED_COLUMNS: { id: SheetColId; label: string; activeFor: SourceMode[] }[] = [
+  { id: "sn", label: "S/N", activeFor: ["Local", "Air", "Sea"] },
+  { id: "currency", label: "Currency", activeFor: ["Local", "Air", "Sea"] },
+  { id: "item", label: "Item description", activeFor: ["Local", "Air", "Sea"] },
+  { id: "qty", label: "Qty", activeFor: ["Local", "Air", "Sea"] },
+  { id: "base", label: "Base price", activeFor: ["Local", "Air", "Sea"] },
+  { id: "other", label: "Other charges", activeFor: ["Local", "Air", "Sea"] },
+  { id: "surcharge", label: "Energy surcharge", activeFor: ["Air", "Sea"] },
+  { id: "insurance", label: "Insurance", activeFor: ["Sea"] },
+  { id: "bank1", label: "Bank 1", activeFor: ["Local", "Air", "Sea"] },
+  { id: "bank2", label: "Bank 2", activeFor: ["Air", "Sea"] },
+  { id: "freight", label: "Freight", activeFor: ["Air", "Sea"] },
+  { id: "customs", label: "Custom duty", activeFor: ["Air", "Sea"] },
+  { id: "soncap", label: "SONCAP", activeFor: ["Air", "Sea"] },
+  { id: "shipping", label: "Shipping line", activeFor: ["Sea"] },
+  { id: "warehouse", label: "Terminal + warehousing", activeFor: ["Sea"] },
+  { id: "agency", label: "Agency", activeFor: ["Air", "Sea"] },
+  { id: "deliveryCity", label: "Delivery within city", activeFor: ["Local", "Air"] },
+  { id: "delivery", label: "Delivery", activeFor: ["Sea"] },
+  { id: "deliveryOutside", label: "Delivery outside Lagos", activeFor: ["Local", "Air", "Sea"] },
+  { id: "markup", label: "Markup", activeFor: ["Local", "Air", "Sea"] },
+  { id: "subFx", label: "Sub-total (FX)", activeFor: ["Air", "Sea"] },
+  { id: "exRate", label: "Ex-rate", activeFor: ["Air", "Sea"] },
+  { id: "totalNgn", label: "Total (NGN)", activeFor: ["Local"] },
+  { id: "subNgn", label: "Sub-total (NGN)", activeFor: ["Air", "Sea"] },
+  { id: "installation", label: "Installation", activeFor: ["Local", "Air", "Sea"] },
+  { id: "commission", label: "Sales rep commission", activeFor: ["Local", "Air", "Sea"] },
+  { id: "grand", label: "Grand total (NGN)", activeFor: ["Local", "Air", "Sea"] },
+];
+
+export function columnActive(id: SheetColId, source: SourceMode) {
+  const column = UNIFIED_COLUMNS.find((entry) => entry.id === id);
+  return column ? column.activeFor.includes(source) : true;
+}
+
 export const SHEET_NOTES: Record<SourceMode, string> = {
-  Local: "Delivery outside the city or state should be treated case by case and is not taken from the standard within-city rate.",
-  Air: "SONCAP may apply. Processing is usually USD 750 per shipment, divided across the line quantity. Commission and installation are bonus figures and are not in the line total.",
-  Sea: "SONCAP may apply. Processing is usually USD 750 per shipment, divided across the line quantity. Commission and installation are bonus figures and are not in the line total.",
+  Local: "Local purchase uses NGN. Foreign-only charges stay visible but inactive.",
+  Air: "Airport / courier uses foreign currency. Local-only charges stay visible but inactive.",
+  Sea: "Sea freight uses foreign currency. Local-only charges stay visible but inactive.",
 };

@@ -10,7 +10,7 @@ import {
   formatGrandTotal,
   summarizeSheet,
 } from "@/lib/estimation";
-import { SHEET_COLUMNS, SHEET_NOTES, SHEET_TABS, type SheetColId } from "@/lib/sheet-columns";
+import { SHEET_NOTES, SHEET_TABS, UNIFIED_COLUMNS, columnActive, type SheetColId } from "@/lib/sheet-columns";
 import { applySource, blankSheetLine, isLocalSource } from "@/lib/sheet-line";
 import { toast } from "@/lib/toast";
 import type { QuoteLine } from "@/lib/quote-analysis";
@@ -161,7 +161,7 @@ export function EstimationSheet({
         return;
       }
       if (payload?.reviewStage) setReviewStage(payload.reviewStage);
-      toast.success("Draft saved");
+      toast.success("Draft saved", { persist: true });
       router.push(`/approval?estimate=${encodeURIComponent(estimateIdRef.current)}`);
       router.refresh();
     } catch {
@@ -196,7 +196,7 @@ export function EstimationSheet({
         toast.error(payload?.error ?? "Unable to submit this estimate.");
         return;
       }
-      toast.success("Estimate submitted for review");
+      toast.success("Estimate submitted for review", { persist: true });
       router.push(`/approval?estimate=${encodeURIComponent(estimateIdRef.current)}`);
       router.refresh();
     } catch {
@@ -206,12 +206,12 @@ export function EstimationSheet({
     }
   }
 
-  function numInput(line: QuoteLine, index: number, field: keyof SheetLine, label: string) {
+  function numInput(line: QuoteLine, index: number, field: keyof SheetLine, label: string, inactive = false) {
     return (
       <input
-        className="sheet-input sheet-input-num"
-        value={(line[field] as string | undefined) ?? ""}
-        disabled={locked}
+        className={inactive ? "sheet-input sheet-input-num is-inactive" : "sheet-input sheet-input-num"}
+        value={inactive ? "" : ((line[field] as string | undefined) ?? "")}
+        disabled={locked || inactive}
         aria-label={`${label} ${index + 1}`}
         onChange={(event) => updateLine(line.id, { [field]: event.target.value } as Partial<SheetLine>)}
       />
@@ -220,16 +220,17 @@ export function EstimationSheet({
 
   function renderCell(col: SheetColId, line: QuoteLine, index: number) {
     const local = setAll === "Local";
+    const inactive = !columnActive(col, setAll);
     switch (col) {
       case "sn":
         return <span className="sheet-index">{index + 1}</span>;
       case "currency":
-        if (local) return "NGN";
+        if (local) return <span className="sheet-currency-locked">NGN</span>;
         return (
           <select
-            className="sheet-select"
+            className={inactive ? "sheet-select is-inactive" : "sheet-select"}
             value={line.currency}
-            disabled={locked}
+            disabled={locked || inactive}
             aria-label={`Currency ${index + 1}`}
             onChange={(event) => updateLine(line.id, { currency: event.target.value as SheetCurrency })}
           >
@@ -249,29 +250,32 @@ export function EstimationSheet({
           />
         );
       case "qty":
-        return numInput(line, index, "qty", "Qty");
+        return numInput(line, index, "qty", "Qty", inactive);
       case "base":
-        return numInput(line, index, "base", "Base price");
+        return numInput(line, index, "base", "Base price", inactive);
       case "other":
-        return numInput(line, index, "msc", "Other charges");
+        return numInput(line, index, "msc", "Other charges", inactive);
       case "bank1":
+        if (inactive) return <span className="sheet-inactive">—</span>;
         return local ? formatAmount(line.bank) : numInput(line, index, "bank1Amount", "Bank 1");
       case "deliveryCity":
       case "delivery":
-        return formatAmount(line.deliveryCharge);
+        return inactive ? <span className="sheet-inactive">—</span> : formatAmount(line.deliveryCharge);
       case "deliveryOutside":
-        return numInput(line, index, "deliveryOutside", "Delivery outside Lagos");
+        return numInput(line, index, "deliveryOutside", "Delivery outside Lagos", inactive);
       case "markup":
+        if (inactive) return <span className="sheet-inactive">—</span>;
         if (mode === "reviewer") {
           return numInput(line, index, "markup", "Markup %");
         }
         return formatAmount(line.markupAmount);
       case "totalNgn":
       case "subNgn":
-        return formatGrandTotal(line.unitNgn);
+        return inactive ? <span className="sheet-inactive">—</span> : formatGrandTotal(line.unitNgn);
       case "commission":
-        return formatAmount(line.commission);
+        return inactive ? <span className="sheet-inactive">—</span> : formatAmount(line.commission);
       case "installation":
+        if (inactive) return <span className="sheet-inactive">—</span>;
         return (
           <span className="sheet-inline-fields">
             {numInput(line, index, "installation", "Installation %")}
@@ -281,16 +285,17 @@ export function EstimationSheet({
       case "grand":
         return formatGrandTotal(line.extendedNgn);
       case "surcharge":
-        return formatAmount(line.surcharge);
+        return inactive ? <span className="sheet-inactive">—</span> : formatAmount(line.surcharge);
       case "insurance":
-        return formatAmount(line.insurance);
+        return inactive ? <span className="sheet-inactive">—</span> : formatAmount(line.insurance);
       case "bank2":
-        return formatAmount(line.bank2);
+        return inactive ? <span className="sheet-inactive">—</span> : formatAmount(line.bank2);
       case "freight":
-        return numInput(line, index, "freight", "Freight");
+        return numInput(line, index, "freight", "Freight", inactive);
       case "customs":
-        return formatAmount(line.customs);
+        return inactive ? <span className="sheet-inactive">—</span> : formatAmount(line.customs);
       case "soncap":
+        if (inactive) return <span className="sheet-inactive">—</span>;
         return (
           <span className="sheet-inline-fields">
             <input
@@ -304,23 +309,23 @@ export function EstimationSheet({
           </span>
         );
       case "agency":
-        return formatAmount(line.agent);
+        return inactive ? <span className="sheet-inactive">—</span> : formatAmount(line.agent);
       case "shipping":
-        return formatAmount(line.shipping);
+        return inactive ? <span className="sheet-inactive">—</span> : formatAmount(line.shipping);
       case "warehouse":
-        return formatAmount(line.warehouseCharge);
+        return inactive ? <span className="sheet-inactive">—</span> : formatAmount(line.warehouseCharge);
       case "subFx":
-        return formatAmount(line.systemCost);
+        return inactive ? <span className="sheet-inactive">—</span> : formatAmount(line.systemCost);
       case "exRate":
         return (
           <input
-            className="sheet-input sheet-input-num"
+            className={inactive ? "sheet-input sheet-input-num is-inactive" : "sheet-input sheet-input-num"}
             type="number"
             min="0"
             step="any"
-            placeholder={String(rates[line.currency] || "")}
-            value={line.exchangeRateOverride ?? ""}
-            disabled={locked}
+            placeholder={inactive ? "" : String(rates[line.currency] || "")}
+            value={inactive ? "" : (line.exchangeRateOverride ?? "")}
+            disabled={locked || inactive}
             aria-label={`Exchange rate ${index + 1}`}
             onChange={(event) => updateLine(line.id, { exchangeRateOverride: event.target.value })}
           />
@@ -330,7 +335,7 @@ export function EstimationSheet({
     }
   }
 
-  const columns = SHEET_COLUMNS[setAll];
+  const columns = UNIFIED_COLUMNS;
 
   if (loading || loadError) {
     return (
@@ -360,12 +365,15 @@ export function EstimationSheet({
           </button>
         )}
       </div>
+      {reviewStage === "returned" ? (
+        <p className="text-error" role="status">This estimate was returned. Correct the sheet and send it for review again.</p>
+      ) : null}
 
       <section className="surface-card panel-card sheet-rates-card">
         <div className="sheet-rates-head">
           <div>
             <h2 className="text-block-title">Exchange rates</h2>
-            <p className="manager-note">Organization rates apply unless a line has its own exchange rate. Authorized roles can update these rates here.</p>
+            <p className="manager-note">Organization rates apply unless a line has its own exchange rate. Sales reps and line managers can update these rates here.</p>
           </div>
           {canEditRates && !locked ? (
             <Button
@@ -408,13 +416,13 @@ export function EstimationSheet({
           ))}
         </div>
         {!canEditRates ? (
-          <p className="manager-note">Only organization administrators and Sales Directors can change shared rates. Enter a line rate where a quote uses a different rate.</p>
+          <p className="manager-note">Shared rates can be edited by sales reps, line managers, and directors. Enter a line rate where a quote uses a different rate.</p>
         ) : null}
       </section>
 
       <div className="sheet-toolbar">
         <div className="set-all">
-          <span>Sheet:</span>
+          <span>Set all:</span>
           {SHEET_TABS.map((tab) => (
             <button
               key={tab.source}
@@ -472,7 +480,7 @@ export function EstimationSheet({
               <thead>
                 <tr>
                   {columns.map((column) => (
-                    <th key={column.id} scope="col">
+                    <th key={column.id} scope="col" className={columnActive(column.id, setAll) ? undefined : "is-inactive"}>
                       {column.label}
                     </th>
                   ))}
@@ -484,15 +492,12 @@ export function EstimationSheet({
                     {columns.map((column) => (
                       <td
                         key={column.id}
-                        className={
-                          column.id === "sn"
-                            ? "sticky-col sheet-index"
-                            : column.id === "item"
-                              ? "sticky-col sticky-second"
-                              : column.id === "grand"
-                                ? "sheet-line-subtotal"
-                                : undefined
-                        }
+                        className={[
+                          column.id === "sn" ? "sticky-col sheet-index" : "",
+                          column.id === "item" ? "sticky-col sticky-second" : "",
+                          column.id === "grand" ? "sheet-line-subtotal" : "",
+                          columnActive(column.id, setAll) ? "" : "is-inactive",
+                        ].filter(Boolean).join(" ") || undefined}
                       >
                         {renderCell(column.id, line, index)}
                       </td>
